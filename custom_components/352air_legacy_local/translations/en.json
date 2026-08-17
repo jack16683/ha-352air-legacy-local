@@ -52,6 +52,21 @@
     }
   },
   "entity": {
+    "fan": {
+      "purifier": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "auto": "Auto",
+              "manual": "Manual",
+              "sleep": "Sleep",
+              "turbo": "Turbo",
+              "deep_clean": "Deep clean"
+            }
+          }
+        }
+      }
+    },
     "light": {
       "display_light": {
         "name": "Display"

@@ -96,6 +96,7 @@ class LegacyPurifierFan(FanEntity, LegacyEntity):
     # therefore inherits the translated device name without a redundant
     # "Purifier" suffix; every secondary entity uses a translated description.
     _attr_name = None
+    _attr_translation_key = "purifier"
     _attr_icon = "mdi:air-purifier"
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED

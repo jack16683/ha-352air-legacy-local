@@ -52,6 +52,21 @@
     }
   },
   "entity": {
+    "fan": {
+      "purifier": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "auto": "自动",
+              "manual": "手动",
+              "sleep": "睡眠",
+              "turbo": "极速",
+              "deep_clean": "极净"
+            }
+          }
+        }
+      }
+    },
     "light": {
       "display_light": {
         "name": "屏幕"
