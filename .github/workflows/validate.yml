@@ -1,0 +1,29 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile Python sources
+        run: python -m compileall -q custom_components tools
+      - name: Lint integration sources
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: check custom_components
+      - name: Check sensitive files
+        run: |
+          if find . -type f \( -name '*.pcap' -o -name '*.pcapng' -o -name '*.apk' -o -name '.ha_token' \) -print -quit | grep -q .; then
+            echo 'Sensitive capture, APK, or token file found in repository.'
+            exit 1
+          fi

@@ -1,0 +1,141 @@
+{
+  "title": "352 老款空气设备本地接入",
+  "config": {
+    "step": {
+      "user": {
+        "title": "添加老款 352 空气设备",
+        "description": "填写设备当前的局域网地址、MAC 地址和准确型号。配置过程只发送只读发现请求。",
+        "data": {
+          "host": "IP 地址",
+          "mac": "MAC 地址",
+          "model": "型号"
+        }
+      },
+      "confirm_model": {
+        "title": "确认设备型号",
+        "description": "本地协议只能识别设备族，无法区分同族的所有零售型号。",
+        "data": {
+          "model": "型号"
+        }
+      },
+      "reconfigure": {
+        "title": "重新配置设备",
+        "description": "更新局域网地址或型号，并使用只读请求验证设备。",
+        "data": {
+          "host": "IP 地址",
+          "mac": "MAC 地址",
+          "model": "型号"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "没有收到设备的有效响应",
+      "invalid_host": "请输入有效的 IPv4 地址",
+      "invalid_mac": "请输入有效的 MAC 地址",
+      "invalid_model": "请选择支持的型号",
+      "model_mismatch": "所选型号与发现的协议族不一致"
+    },
+    "abort": {
+      "already_configured": "该设备已经配置",
+      "cannot_connect": "没有收到设备的有效响应",
+      "invalid_discovery": "发现信息不完整",
+      "unsupported_device": "暂不支持发现到的协议族",
+      "unique_id_mismatch": "该 MAC 地址属于另一个已配置设备"
+    }
+  },
+  "entity": {
+    "light": {
+      "display_light": {
+        "name": "屏幕"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "运行模式",
+        "state": {
+          "auto": "自动",
+          "sleep": "睡眠",
+          "turbo": "极速",
+          "deep_clean": "极净"
+        }
+      },
+      "timer": {
+        "name": "定时关机",
+        "state": {
+          "off": "关闭",
+          "1": "1 小时",
+          "2": "2 小时",
+          "3": "3 小时",
+          "5": "5 小时",
+          "8": "8 小时"
+        }
+      },
+      "ptc": {
+        "name": "PTC 加热",
+        "state": {
+          "off": "关闭",
+          "level_1": "1 档",
+          "level_2": "2 档"
+        }
+      },
+      "backlight_mode": {
+        "name": "背光模式",
+        "state": {
+          "five_minutes": "亮 5 分钟",
+          "always_on": "常亮"
+        }
+      }
+    },
+    "sensor": {
+      "pm25": {
+        "name": "PM2.5"
+      },
+      "raw_air_quality": {
+        "name": "空气质量原始等级"
+      },
+      "timer_remaining": {
+        "name": "定时剩余时间"
+      },
+      "processed_air_total": {
+        "name": "累计处理空气量"
+      },
+      "purified_air_total": {
+        "name": "累计净化空气量"
+      },
+      "filter_type_raw": {
+        "name": "滤芯类型原始值"
+      },
+      "temperature": {
+        "name": "温度"
+      },
+      "humidity": {
+        "name": "湿度"
+      },
+      "co2": {
+        "name": "二氧化碳"
+      },
+      "airflow": {
+        "name": "风量"
+      }
+    },
+    "switch": {
+      "child_lock": {
+        "name": "童锁"
+      }
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "设备没有确认这次控制"
+    },
+    "unsupported_option": {
+      "message": "所选型号不支持这个选项"
+    },
+    "unsupported_preset": {
+      "message": "所选型号不支持这个预设模式"
+    },
+    "unsupported_timer": {
+      "message": "设备不支持这个定时时长"
+    }
+  }
+}

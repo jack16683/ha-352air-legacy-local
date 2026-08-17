@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.idea/
+.vscode/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Validation stays local and is never published.
+/tests/
+/private_validation/
+
+# Never publish reverse-engineering inputs or private network material.
+*.apk
+*.cap
+*.pcap
+*.pcapng
+*.der
+*.key
+*.pem
+*.token
+.env
+.ha_token
+captures/
+research/
+

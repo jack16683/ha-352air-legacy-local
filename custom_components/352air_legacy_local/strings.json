@@ -1,0 +1,141 @@
+{
+  "title": "352 Air Legacy Local",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a legacy 352 air device",
+        "description": "Enter the current LAN address, MAC address, and exact retail model. Setup sends read-only discovery probes only.",
+        "data": {
+          "host": "IP address",
+          "mac": "MAC address",
+          "model": "Model"
+        }
+      },
+      "confirm_model": {
+        "title": "Confirm the device model",
+        "description": "The local protocol identifies a device family, but cannot distinguish every retail model in that family.",
+        "data": {
+          "model": "Model"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure device",
+        "description": "Update the LAN address or model and verify the device with a read-only probe.",
+        "data": {
+          "host": "IP address",
+          "mac": "MAC address",
+          "model": "Model"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No valid reply was received from the device",
+      "invalid_host": "Enter a valid IPv4 address",
+      "invalid_mac": "Enter a valid MAC address",
+      "invalid_model": "Select a supported model",
+      "model_mismatch": "The selected model does not match the discovered protocol family"
+    },
+    "abort": {
+      "already_configured": "This device is already configured",
+      "cannot_connect": "No valid reply was received from the device",
+      "invalid_discovery": "The discovery information is incomplete",
+      "unsupported_device": "The discovered protocol family is not supported",
+      "unique_id_mismatch": "The MAC address belongs to a different configured device"
+    }
+  },
+  "entity": {
+    "light": {
+      "display_light": {
+        "name": "Display"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Operating mode",
+        "state": {
+          "auto": "Auto",
+          "sleep": "Sleep",
+          "turbo": "Turbo",
+          "deep_clean": "Deep clean"
+        }
+      },
+      "timer": {
+        "name": "Shutoff timer",
+        "state": {
+          "off": "Off",
+          "1": "1 hour",
+          "2": "2 hours",
+          "3": "3 hours",
+          "5": "5 hours",
+          "8": "8 hours"
+        }
+      },
+      "ptc": {
+        "name": "PTC heating",
+        "state": {
+          "off": "Off",
+          "level_1": "Level 1",
+          "level_2": "Level 2"
+        }
+      },
+      "backlight_mode": {
+        "name": "Backlight mode",
+        "state": {
+          "five_minutes": "Five minutes",
+          "always_on": "Always on"
+        }
+      }
+    },
+    "sensor": {
+      "pm25": {
+        "name": "PM2.5"
+      },
+      "raw_air_quality": {
+        "name": "Raw air quality class"
+      },
+      "timer_remaining": {
+        "name": "Timer remaining"
+      },
+      "processed_air_total": {
+        "name": "Total processed air"
+      },
+      "purified_air_total": {
+        "name": "Total purified air"
+      },
+      "filter_type_raw": {
+        "name": "Raw filter type"
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "co2": {
+        "name": "Carbon dioxide"
+      },
+      "airflow": {
+        "name": "Airflow"
+      }
+    },
+    "switch": {
+      "child_lock": {
+        "name": "Child lock"
+      }
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "The device did not confirm the command"
+    },
+    "unsupported_option": {
+      "message": "This option is not supported by the selected model"
+    },
+    "unsupported_preset": {
+      "message": "This preset is not supported by the selected model"
+    },
+    "unsupported_timer": {
+      "message": "This timer duration is not supported by the device"
+    }
+  }
+}

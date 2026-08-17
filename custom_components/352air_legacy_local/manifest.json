@@ -1,0 +1,18 @@
+{
+  "domain": "352air_legacy_local",
+  "name": "352 Air Legacy Local",
+  "after_dependencies": ["dhcp"],
+  "codeowners": ["@jack16683"],
+  "config_flow": true,
+  "dhcp": [
+    {
+      "macaddress": "009569*"
+    }
+  ],
+  "documentation": "https://github.com/jack16683/ha-352air-legacy-local",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/jack16683/ha-352air-legacy-local/issues",
+  "requirements": [],
+  "version": "3.0.0"
+}
