@@ -20,6 +20,7 @@ from .runtime import RuntimeData
 _DISPLAY_LIGHT = LightEntityDescription(
     key="display_light",
     translation_key="display_light",
+    icon="mdi:monitor-dashboard",
 )
 
 

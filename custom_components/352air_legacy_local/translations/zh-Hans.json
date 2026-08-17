@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "添加老款 352 空气设备",
-        "description": "填写设备当前的局域网地址、MAC 地址和准确型号。配置过程只发送只读发现请求。",
+        "description": "填写设备当前的局域网地址、MAC 地址和准确型号。身份验证只读取设备；在后续可选定时步骤前不会更改机器设置。",
         "data": {
           "host": "IP 地址",
           "mac": "MAC 地址",
@@ -18,9 +18,16 @@
           "model": "型号"
         }
       },
+      "schedule_cleanup": {
+        "title": "处理机器本地循环定时",
+        "description": "可选择清除净化器内部保存的 4 组循环定时开关机。默认不清除，也不会删除 Home Assistant 自动化。开启后只发送一次清除命令，并连续读取两次空记录确认；若失败，可重试或关闭此选项以保留原定时。",
+        "data": {
+          "clear_local_schedules": "清除机器内部的循环定时开关机"
+        }
+      },
       "reconfigure": {
         "title": "重新配置设备",
-        "description": "更新局域网地址或型号，并使用只读请求验证设备。",
+        "description": "更新局域网地址或型号，并使用只读请求验证设备。下一步可以选择是否清除机器本地定时。",
         "data": {
           "host": "IP 地址",
           "mac": "MAC 地址",
@@ -33,7 +40,8 @@
       "invalid_host": "请输入有效的 IPv4 地址",
       "invalid_mac": "请输入有效的 MAC 地址",
       "invalid_model": "请选择支持的型号",
-      "model_mismatch": "所选型号与发现的协议族不一致"
+      "model_mismatch": "所选型号与发现的协议族不一致",
+      "schedule_cleanup_failed": "未能清除并确认本地定时；请重试，或关闭此选项以保留现有定时"
     },
     "abort": {
       "already_configured": "该设备已经配置",
@@ -50,15 +58,6 @@
       }
     },
     "select": {
-      "operating_mode": {
-        "name": "运行模式",
-        "state": {
-          "auto": "自动",
-          "sleep": "睡眠",
-          "turbo": "极速",
-          "deep_clean": "极净"
-        }
-      },
       "timer": {
         "name": "定时关机",
         "state": {
@@ -134,7 +133,7 @@
         "name": "二氧化碳"
       },
       "airflow": {
-        "name": "风量"
+        "name": "当前风量"
       }
     },
     "switch": {

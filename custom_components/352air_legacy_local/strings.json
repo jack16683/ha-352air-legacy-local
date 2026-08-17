@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Add a legacy 352 air device",
-        "description": "Enter the current LAN address, MAC address, and exact retail model. Setup sends read-only discovery probes only.",
+        "description": "Enter the current LAN address, MAC address, and exact retail model. Identity verification is read-only; no device setting changes before the optional schedule step.",
         "data": {
           "host": "IP address",
           "mac": "MAC address",
@@ -18,9 +18,16 @@
           "model": "Model"
         }
       },
+      "schedule_cleanup": {
+        "title": "Handle device-local recurring schedules",
+        "description": "Optionally clear all four recurring on/off schedule slots stored inside the purifier. This is off by default and does not delete Home Assistant automations. When selected, the integration sends one clear write and requires two successful empty reads. If it fails, retry or turn this option off to keep the current schedules.",
+        "data": {
+          "clear_local_schedules": "Clear recurring on/off schedules stored in the purifier"
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure device",
-        "description": "Update the LAN address or model and verify the device with a read-only probe.",
+        "description": "Update the LAN address or model and verify the device with a read-only probe. The next step can optionally clear device-local schedules.",
         "data": {
           "host": "IP address",
           "mac": "MAC address",
@@ -33,7 +40,8 @@
       "invalid_host": "Enter a valid IPv4 address",
       "invalid_mac": "Enter a valid MAC address",
       "invalid_model": "Select a supported model",
-      "model_mismatch": "The selected model does not match the discovered protocol family"
+      "model_mismatch": "The selected model does not match the discovered protocol family",
+      "schedule_cleanup_failed": "The schedules could not be cleared and verified; retry, or turn the option off to keep them"
     },
     "abort": {
       "already_configured": "This device is already configured",
@@ -50,15 +58,6 @@
       }
     },
     "select": {
-      "operating_mode": {
-        "name": "Operating mode",
-        "state": {
-          "auto": "Auto",
-          "sleep": "Sleep",
-          "turbo": "Turbo",
-          "deep_clean": "Deep clean"
-        }
-      },
       "timer": {
         "name": "Shutoff timer",
         "state": {
@@ -134,7 +133,7 @@
         "name": "Carbon dioxide"
       },
       "airflow": {
-        "name": "Airflow"
+        "name": "Current airflow"
       }
     },
     "switch": {

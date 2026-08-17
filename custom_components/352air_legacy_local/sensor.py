@@ -25,6 +25,7 @@ from homeassistant.const import (
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ConfigEntry
+from .airflow import airflow_curve, current_airflow_m3h
 from .const import (
     CONTINUOUS_AIRFLOW_MODELS,
     FIVE_SPEED_MODELS,
@@ -54,26 +55,13 @@ _FILTER_PROFILE_MAP = {0: "profile_0", 1: "profile_1", 2: "profile_2"}
 _G30_FILTER_PROFILE_OPTIONS = ["standard", "super_carbon"]
 _G30_FILTER_PROFILE_MAP = {0: "standard", 1: "super_carbon"}
 
-# The retired app uses these tables to turn a speed level and filter-profile
-# nibble into the displayed airflow.  They are not filter-life or presence
-# indicators.  X50-family profile 2 has no corresponding table in the APK.
-_A5_AIRFLOW_CURVES = {
-    0: (140, 240, 360, 500, 610, 760),
-    1: (60, 140, 220, 330, 390, 500),
-    2: (130, 220, 330, 430, 500, 640),
-}
-_X50_AIRFLOW_CURVES = {
-    0: (150, 220, 300, 400, 510, 600),
-    1: (120, 170, 240, 330, 430, 540),
-}
-
-
 _SENSORS: tuple[LegacySensorDescription, ...] = (
     LegacySensorDescription(
         key="pm25",
         translation_key="pm25",
         state_attribute="pm25",
         supported_models=PURIFIER_MODELS | {MODEL_M25},
+        icon="mdi:weather-hazy",
         device_class=SensorDeviceClass.PM25,
         native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -83,6 +71,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="air_quality",
         state_attribute="air_quality",
         supported_models=PURIFIER_MODELS,
+        icon="mdi:air-filter",
         device_class=SensorDeviceClass.ENUM,
         options=_AIR_QUALITY_OPTIONS,
         value_map=_AIR_QUALITY_MAP,
@@ -92,6 +81,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="timer_remaining",
         state_attribute="timer_remaining",
         supported_models=PURIFIER_MODELS,
+        icon="mdi:timer-outline",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.MEASUREMENT,
@@ -101,6 +91,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="current_run_processed_air",
         state_attribute="processed_air",
         supported_models=PURIFIER_MODELS,
+        icon="mdi:air-purifier",
         device_class=SensorDeviceClass.VOLUME,
         native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -110,6 +101,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="purified_air_total",
         state_attribute="purified_air",
         supported_models=PURIFIER_MODELS,
+        icon="mdi:counter",
         device_class=SensorDeviceClass.VOLUME,
         native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -119,6 +111,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="filter_airflow_profile",
         state_attribute="filter_type_raw",
         supported_models=SIX_SPEED_MODELS | FIVE_SPEED_MODELS,
+        icon="mdi:air-filter",
         device_class=SensorDeviceClass.ENUM,
         options=_FILTER_PROFILE_OPTIONS,
         value_map=_FILTER_PROFILE_MAP,
@@ -129,6 +122,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="filter_airflow_profile",
         state_attribute="filter_type_raw",
         supported_models=CONTINUOUS_AIRFLOW_MODELS,
+        icon="mdi:air-filter",
         device_class=SensorDeviceClass.ENUM,
         options=_G30_FILTER_PROFILE_OPTIONS,
         value_map=_G30_FILTER_PROFILE_MAP,
@@ -139,6 +133,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="linkage_state",
         state_attribute="linkage_raw",
         supported_models=SIX_SPEED_MODELS | FIVE_SPEED_MODELS | {MODEL_M25},
+        icon="mdi:link-variant",
         device_class=SensorDeviceClass.ENUM,
         options=_LINKAGE_OPTIONS,
         value_map=_LINKAGE_MAP,
@@ -149,6 +144,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="temperature",
         state_attribute="temperature",
         supported_models=CONTINUOUS_AIRFLOW_MODELS,
+        icon="mdi:thermometer",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
@@ -158,6 +154,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="humidity",
         state_attribute="humidity",
         supported_models=CONTINUOUS_AIRFLOW_MODELS,
+        icon="mdi:water-percent",
         device_class=SensorDeviceClass.HUMIDITY,
         native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -167,6 +164,7 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         translation_key="co2",
         state_attribute="co2",
         supported_models=CONTINUOUS_AIRFLOW_MODELS,
+        icon="mdi:molecule-co2",
         device_class=SensorDeviceClass.CO2,
         native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
         state_class=SensorStateClass.MEASUREMENT,
@@ -175,7 +173,8 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         key="airflow",
         translation_key="airflow",
         state_attribute="airflow",
-        supported_models=CONTINUOUS_AIRFLOW_MODELS,
+        supported_models=PURIFIER_MODELS,
+        icon="mdi:weather-windy",
         device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
         native_unit_of_measurement=UnitOfVolumeFlowRate.CUBIC_METERS_PER_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
@@ -211,6 +210,13 @@ class LegacySensor(SensorEntity, LegacyEntity):
     @property
     def native_value(self) -> int | float | str | None:
         """Return no value if the optional field was absent from a valid packet."""
+        if self.entity_description.key == "airflow":
+            return current_airflow_m3h(
+                self._runtime.model,
+                speed=state_attribute(self._runtime, "speed"),
+                filter_profile=state_attribute(self._runtime, "filter_type_raw"),
+                reported_airflow=state_attribute(self._runtime, "airflow"),
+            )
         value = state_attribute(self._runtime, self.entity_description.state_attribute)
         if self.entity_description.value_map is not None:
             return (
@@ -229,14 +235,10 @@ class LegacySensor(SensorEntity, LegacyEntity):
         if not isinstance(value, int):
             return None
         attributes: dict[str, Any] = {"raw_code": value}
-        if self.entity_description.key == "filter_airflow_profile":
-            curves = {}
-            if self._runtime.model in SIX_SPEED_MODELS:
-                curves = _A5_AIRFLOW_CURVES
-            elif self._runtime.model in FIVE_SPEED_MODELS:
-                curves = _X50_AIRFLOW_CURVES
-            if curve := curves.get(value):
-                attributes["airflow_by_speed_m3h"] = {
-                    str(speed): airflow for speed, airflow in enumerate(curve, 1)
-                }
+        if self.entity_description.key == "filter_airflow_profile" and (
+            curve := airflow_curve(self._runtime.model, value)
+        ):
+            attributes["airflow_by_speed_m3h"] = {
+                str(speed): airflow for speed, airflow in enumerate(curve, 1)
+            }
         return attributes

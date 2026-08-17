@@ -17,6 +17,7 @@ from .runtime import RuntimeData
 _CHILD_LOCK = SwitchEntityDescription(
     key="child_lock",
     translation_key="child_lock",
+    icon="mdi:account-lock-outline",
     entity_category=EntityCategory.CONFIG,
 )
 

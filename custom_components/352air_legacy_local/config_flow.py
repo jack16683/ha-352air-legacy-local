@@ -10,9 +10,11 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.helpers import selector
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .const import (
+    CONF_CLEAR_LOCAL_SCHEDULES,
     CONF_HOST,
     CONF_MAC,
     CONF_MODEL,
@@ -28,6 +30,11 @@ from .discovery import (
     DiscoveryResult,
     DiscoveryTimeoutError,
     async_discover_device,
+)
+from .schedule import (
+    ScheduleCleanupError,
+    async_clear_local_schedules,
+    schedule_cleanup_supported,
 )
 
 
@@ -64,6 +71,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     MINOR_VERSION = 1
 
     _pending_discovery: DiscoveryResult | None = None
+    _pending_model: str | None = None
+    _pending_reconfigure_entry: config_entries.ConfigEntry[Any] | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -79,10 +88,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     updates=self._entry_data(result, model),
                     reload_on_update=True,
                 )
-                return self.async_create_entry(
-                    title=f"352 {MODEL_OPTIONS[model]}",
-                    data=self._entry_data(result, model),
-                )
+                return await self._async_continue_after_identity(result, model)
 
         return self.async_show_form(
             step_id="user",
@@ -133,10 +139,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_schema=_model_schema(models=models),
                     errors={CONF_MODEL: "model_mismatch"},
                 )
-            return self.async_create_entry(
-                title=f"352 {MODEL_OPTIONS[model]}",
-                data=self._entry_data(result, model),
-            )
+            return await self._async_continue_after_identity(result, model)
 
         return self.async_show_form(
             step_id="confirm_model",
@@ -155,15 +158,85 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(result.mac)
                 self._abort_if_unique_id_mismatch()
                 model = str(user_input[CONF_MODEL])
-                return self.async_update_reload_and_abort(
-                    entry,
-                    data_updates=self._entry_data(result, model),
+                return await self._async_continue_after_identity(
+                    result,
+                    model,
+                    reconfigure_entry=entry,
                 )
 
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_full_schema(entry.data),
             errors=errors,
+        )
+
+    async def async_step_schedule_cleanup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Optionally remove the device's four persistent recurring schedules."""
+        result = self._pending_discovery
+        model = self._pending_model
+        if result is None or model is None:
+            return self.async_abort(reason="invalid_discovery")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if bool(user_input.get(CONF_CLEAR_LOCAL_SCHEDULES, False)):
+                try:
+                    await async_clear_local_schedules(result)
+                except ScheduleCleanupError:
+                    errors["base"] = "schedule_cleanup_failed"
+                else:
+                    return self._finish_pending_entry()
+            else:
+                return self._finish_pending_entry()
+
+        return self.async_show_form(
+            step_id="schedule_cleanup",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CLEAR_LOCAL_SCHEDULES,
+                        default=bool(
+                            user_input
+                            and user_input.get(CONF_CLEAR_LOCAL_SCHEDULES, False)
+                        ),
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+        )
+
+    async def _async_continue_after_identity(
+        self,
+        result: DiscoveryResult,
+        model: str,
+        *,
+        reconfigure_entry: config_entries.ConfigEntry[Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Store verified identity data before the optional write step."""
+        self._pending_discovery = result
+        self._pending_model = model
+        self._pending_reconfigure_entry = reconfigure_entry
+        if schedule_cleanup_supported(result.wire_type):
+            return await self.async_step_schedule_cleanup()
+        return self._finish_pending_entry()
+
+    def _finish_pending_entry(self) -> ConfigFlowResult:
+        """Create or update only after the optional cleanup step is resolved."""
+        result = self._pending_discovery
+        model = self._pending_model
+        if result is None or model is None:
+            return self.async_abort(reason="invalid_discovery")
+        data = self._entry_data(result, model)
+        if self._pending_reconfigure_entry is not None:
+            return self.async_update_reload_and_abort(
+                self._pending_reconfigure_entry,
+                data_updates=data,
+            )
+        return self.async_create_entry(
+            title=f"352 {MODEL_OPTIONS[model]}",
+            data=data,
         )
 
     async def _async_validate_input(

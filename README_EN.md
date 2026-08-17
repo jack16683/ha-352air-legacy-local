@@ -44,10 +44,13 @@ not prove that every firmware accepts a command.
 
 - LAN discovery plus manual IP/MAC setup.
 - Learns company, protocol family, and authentication fields from replies.
-- Main fan entity: 0% powers off; nonzero speed, auto/manual, and a speed slider.
-- HA mode selector for sleep, turbo, and model-supported experimental deep clean.
+- One main fan entity: 0% powers off, with a speed slider and auto, manual,
+  sleep, turbo, and model-supported experimental deep-clean modes. No separate
+  mode entity is created.
 - PM2.5, air quality, filter airflow profile, current-run processed air,
-  lifetime purified air, remaining timer, and proven model sensors.
+  lifetime purified air, current airflow, remaining timer, and proven model
+  sensors. Discrete-speed airflow is calculated from the APK profile curve;
+  G30/G45 uses the reported airflow.
 - Child lock, display, shutoff timer, and G30/G45 PTC controls.
 - Push updates from broadcasts with read-only refresh when broadcasts go stale.
 - Simplified Chinese translation; English fallback for every other HA language.
@@ -75,8 +78,12 @@ command values 4 and 5, so this project does not expose an unverified
 
 Discovery identifies a protocol family first and asks for the exact model when
 the LAN protocol cannot distinguish retail variants. Use manual setup with the
-device IP, MAC, and model if discovery is unavailable. Setup never provisions
-Wi-Fi, locks the device, or changes purifier state.
+device IP, MAC, and model if discovery is unavailable. Identity verification
+never provisions Wi-Fi, locks the device, or changes purifier state. After the
+address and model are confirmed, setup separately asks whether to clear all
+four recurring schedules stored in the purifier. The option is off by default;
+when selected, setup writes once and requires two successful empty reads. The
+same step is available during reconfiguration.
 
 ## Check schedules left by the old app
 
@@ -89,9 +96,11 @@ cd tools
 python3 352air_schedule_manager.py
 ```
 
-It queries all four slots immediately after device selection. Remove obsolete
-device schedules, then manage power times with Home Assistant automations to
-avoid two conflicting schedules. See the
+Initial setup and reconfiguration can now clear all four slots. The standalone
+tool remains useful for inspecting exact slot contents, setting device-local
+schedules, or managing schedules without HA. Remove obsolete device schedules,
+then manage power times with Home Assistant automations to avoid two conflicting
+schedules. See the
 [schedule-manager guide](docs/schedule-manager.md).
 
 ## HomeKit
@@ -112,9 +121,14 @@ homekit:
 
 Replace the example entity IDs with the IDs from your HA instance. Apple Home
 then shows one purifier accessory with power, auto/manual, a speed slider, and
-linked PM2.5; moving the slider to 0 powers off. HomeKit's purifier service has
-no native sleep or turbo target states, so the full mode list remains in HA's
-**Operating mode** entity instead of becoming extra HomeKit buttons.
+linked PM2.5; moving the slider to 0 powers off.
+
+The integration correctly publishes every mode through the main fan's
+`preset_modes`. Home Assistant's built-in HomeKit Bridge converts each non-auto
+preset into a linked switch because HomeKit has no native sleep, turbo, or deep-
+clean target states. To avoid those buttons, create a preset-free Template Fan
+proxy, bridge only the proxy to HomeKit, and keep the original fan in HA for the
+complete mode control. Do not bridge both entities.
 
 ## Privacy and safety
 
@@ -123,6 +137,7 @@ no native sleep or turbo target states, so the full mode list remains in HA's
   data; discovery uses only 352's public vendor OUI prefix.
 - Diagnostics redact hosts, MACs, auth values, and raw packets.
 - Discovery is read-only and never reproduces the old app's lock operation.
+  Schedule cleanup is a separate write step that is off until explicitly chosen.
 
 Use this project only with devices you own or are authorized to manage.
 

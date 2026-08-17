@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Air-purifier fan entities with compact HomeKit percentage control."""
+"""One complete Home Assistant fan entity for each legacy purifier."""
 
 from __future__ import annotations
 
@@ -14,10 +14,20 @@ from homeassistant.util.percentage import (
 )
 
 from . import ConfigEntry
+from .airflow import current_airflow_m3h
 from .const import (
     CONTINUOUS_AIRFLOW_MODELS,
     DOMAIN,
     FIVE_SPEED_MODELS,
+    MODEL_G30,
+    MODEL_G45,
+    MODEL_X50,
+    MODEL_X50S,
+    MODEL_X60,
+    MODEL_X70,
+    MODEL_X83,
+    MODEL_X83C,
+    MODEL_X83C_PLUS,
     SIX_SPEED_MODELS,
     model_is_purifier,
 )
@@ -29,7 +39,44 @@ _X50_COMMAND_SPEEDS = [1, 2, 3, 4, 5]
 _G30_AIRFLOW_RANGE = (40, 300)
 _G45_AIRFLOW_RANGE = (40, 450)
 
-_HOMEKIT_SAFE_PRESETS = {"auto": 1}
+_MANUAL_PRESET = "manual"
+_MODE_OPTIONS_BY_MODEL: dict[str, dict[str, int]] = {
+    # X83C mode 5 was rejected by the tested device. Manual mode is entered by
+    # sending a speed command rather than an unsupported mode=4 command.
+    MODEL_X83C: {"auto": 1, "manual": 4, "sleep": 2, "turbo": 3},
+    # These siblings share the A5A0 command family. Deep clean is recovered
+    # from the retired app but remains unverified on these exact retail models.
+    MODEL_X83: {
+        "auto": 1,
+        "manual": 4,
+        "sleep": 2,
+        "turbo": 3,
+        "deep_clean": 5,
+    },
+    MODEL_X83C_PLUS: {
+        "auto": 1,
+        "manual": 4,
+        "sleep": 2,
+        "turbo": 3,
+        "deep_clean": 5,
+    },
+    # F072 uses speed/airflow to enter manual mode; mode=4 is not a documented
+    # outbound command for this family.
+    **{
+        model: {
+            "auto": 1,
+            "manual": 4,
+            "sleep": 2,
+            "turbo": 3,
+            "deep_clean": 5,
+        }
+        for model in (MODEL_X50, MODEL_X50S, MODEL_X60, MODEL_X70)
+    },
+    **{
+        model: {"auto": 1, "manual": 4, "deep_clean": 5}
+        for model in (MODEL_G30, MODEL_G45)
+    },
+}
 
 
 async def async_setup_entry(
@@ -49,6 +96,7 @@ class LegacyPurifierFan(FanEntity, LegacyEntity):
     # therefore inherits the translated device name without a redundant
     # "Purifier" suffix; every secondary entity uses a translated description.
     _attr_name = None
+    _attr_icon = "mdi:air-purifier"
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED
         | FanEntityFeature.PRESET_MODE
@@ -99,29 +147,49 @@ class LegacyPurifierFan(FanEntity, LegacyEntity):
         return 100
 
     @property
+    def extra_state_attributes(self) -> dict[str, int] | None:
+        """Expose airflow without violating Home Assistant's percentage API."""
+        attributes: dict[str, int] = {}
+        speed = state_attribute(self._runtime, "speed")
+        airflow = current_airflow_m3h(
+            self._runtime.model,
+            speed=speed,
+            filter_profile=state_attribute(self._runtime, "filter_type_raw"),
+            reported_airflow=state_attribute(self._runtime, "airflow"),
+        )
+        if airflow is not None:
+            attributes["airflow_m3h"] = airflow
+        return attributes or None
+
+    @property
     def preset_modes(self) -> list[str]:
-        """List true automatic presets, excluding manual speed and off."""
-        return list(_HOMEKIT_SAFE_PRESETS)
+        """Expose every documented model mode through the main fan entity."""
+        return list(self._mode_options)
 
     @property
     def preset_mode(self) -> str | None:
-        """Report a recognized automatic preset; manual state has no preset."""
+        """Report the current protocol mode as the fan's active preset."""
         if self.is_on is False:
             return None
         value = enum_value(state_attribute(self._runtime, "mode"))
         if isinstance(value, str):
             normalized = value.casefold().replace("-", "_").replace(" ", "_")
-            return normalized if normalized in _HOMEKIT_SAFE_PRESETS else None
+            return normalized if normalized in self._mode_options else None
         if isinstance(value, int):
             return next(
                 (
                     preset
-                    for preset, command_value in _HOMEKIT_SAFE_PRESETS.items()
+                    for preset, command_value in self._mode_options.items()
                     if command_value == value
                 ),
                 None,
             )
         return None
+
+    @property
+    def _mode_options(self) -> dict[str, int]:
+        """Return the selected retail model's bounded mode mapping."""
+        return _MODE_OPTIONS_BY_MODEL[self._runtime.model]
 
     @property
     def _airflow_range(self) -> tuple[int, int]:
@@ -166,13 +234,19 @@ class LegacyPurifierFan(FanEntity, LegacyEntity):
         await self._runtime.async_command("percentage", percentage)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Apply a supported automatic mode, never an invented manual/off preset."""
-        command_value = _HOMEKIT_SAFE_PRESETS.get(preset_mode)
+        """Apply a model mode, using airflow to enter real manual mode."""
+        command_value = self._mode_options.get(preset_mode)
         if command_value is None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="unsupported_preset",
             )
+        if preset_mode == _MANUAL_PRESET:
+            percentage = self.percentage
+            if percentage is None or percentage <= 0:
+                percentage = max(1, round(100 / self.speed_count))
+            await self.async_set_percentage(percentage)
+            return
         await self._runtime.async_command("mode", command_value)
 
 
