@@ -107,8 +107,15 @@
       "purified_air_total": {
         "name": "累计净化空气量"
       },
-      "filter_type_raw": {
-        "name": "滤芯类型原始值"
+      "filter_airflow_profile": {
+        "name": "滤芯风量配置",
+        "state": {
+          "profile_0": "配置 0",
+          "profile_1": "配置 1",
+          "profile_2": "配置 2",
+          "standard": "标准款",
+          "super_carbon": "超级碳"
+        }
       },
       "linkage_state": {
         "name": "联动状态",

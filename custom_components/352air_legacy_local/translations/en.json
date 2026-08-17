@@ -107,8 +107,15 @@
       "purified_air_total": {
         "name": "Total purified air"
       },
-      "filter_type_raw": {
-        "name": "Raw filter type"
+      "filter_airflow_profile": {
+        "name": "Filter airflow profile",
+        "state": {
+          "profile_0": "Profile 0",
+          "profile_1": "Profile 1",
+          "profile_2": "Profile 2",
+          "standard": "Standard",
+          "super_carbon": "Super carbon"
+        }
       },
       "linkage_state": {
         "name": "Linked-device state",

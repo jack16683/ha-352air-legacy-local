@@ -242,6 +242,7 @@ class F072Codec(DeviceCodec):
         purified_base = int.from_bytes(data_area[25:27], "big")
         raw_values: dict[str, int] = {
             "mode_raw": packed & 0x0F,
+            "filter_profile_raw": packed >> 4,
             "speed_raw": raw_speed,
             "timer_hours_raw": raw_timer,
             "air_quality_raw": data_area[6],
@@ -317,12 +318,14 @@ class F072Codec(DeviceCodec):
         raw_power = data_area[9]
         raw_ptc = data_area[18]
         raw_flow = int.from_bytes(data_area[27:29], "big")
+        raw_filter_profile = packed >> 4
         processed_exponent = data_area[21]
         processed_base = int.from_bytes(data_area[22:24], "big")
         purified_exponent = data_area[24]
         purified_base = int.from_bytes(data_area[25:27], "big")
         raw_values: dict[str, int] = {
             "mode_raw": packed & 0x0F,
+            "filter_profile_raw": raw_filter_profile,
             "timer_hours_raw": raw_timer,
             "air_quality_raw": data_area[6],
             "child_lock_raw": raw_lock,
@@ -360,7 +363,9 @@ class F072Codec(DeviceCodec):
             # G30/G45 evidence names only auto (1) and deep clean (5).  Do
             # not borrow X50/A5 labels for the other encoded values.
             mode=_g30_mode(packed & 0x0F),
-            filter_type_raw=packed >> 4,
+            # The G30 parser collapses every non-zero nibble to the named
+            # "super carbon" profile; keep the original nibble in raw_values.
+            filter_type_raw=1 if raw_filter_profile else 0,
             timer_hours=raw_timer if raw_timer in {0, 1, 2, 3, 5, 8} else None,
             air_quality_raw=data_area[6],
             child_lock=child_lock,

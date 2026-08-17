@@ -49,6 +49,23 @@ _AIR_QUALITY_OPTIONS = ["excellent", "good", "poor"]
 _AIR_QUALITY_MAP = {1: "excellent", 2: "good", 3: "poor"}
 _LINKAGE_OPTIONS = ["not_linked", "linked"]
 _LINKAGE_MAP = {0: "not_linked", 1: "linked"}
+_FILTER_PROFILE_OPTIONS = ["profile_0", "profile_1", "profile_2"]
+_FILTER_PROFILE_MAP = {0: "profile_0", 1: "profile_1", 2: "profile_2"}
+_G30_FILTER_PROFILE_OPTIONS = ["standard", "super_carbon"]
+_G30_FILTER_PROFILE_MAP = {0: "standard", 1: "super_carbon"}
+
+# The retired app uses these tables to turn a speed level and filter-profile
+# nibble into the displayed airflow.  They are not filter-life or presence
+# indicators.  X50-family profile 2 has no corresponding table in the APK.
+_A5_AIRFLOW_CURVES = {
+    0: (140, 240, 360, 500, 610, 760),
+    1: (60, 140, 220, 330, 390, 500),
+    2: (130, 220, 330, 430, 500, 640),
+}
+_X50_AIRFLOW_CURVES = {
+    0: (150, 220, 300, 400, 510, 600),
+    1: (120, 170, 240, 330, 430, 540),
+}
 
 
 _SENSORS: tuple[LegacySensorDescription, ...] = (
@@ -98,10 +115,23 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
     ),
     LegacySensorDescription(
-        key="filter_type_raw",
-        translation_key="filter_type_raw",
+        key="filter_airflow_profile",
+        translation_key="filter_airflow_profile",
         state_attribute="filter_type_raw",
-        supported_models=PURIFIER_MODELS,
+        supported_models=SIX_SPEED_MODELS | FIVE_SPEED_MODELS,
+        device_class=SensorDeviceClass.ENUM,
+        options=_FILTER_PROFILE_OPTIONS,
+        value_map=_FILTER_PROFILE_MAP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    LegacySensorDescription(
+        key="filter_airflow_profile",
+        translation_key="filter_airflow_profile",
+        state_attribute="filter_type_raw",
+        supported_models=CONTINUOUS_AIRFLOW_MODELS,
+        device_class=SensorDeviceClass.ENUM,
+        options=_G30_FILTER_PROFILE_OPTIONS,
+        value_map=_G30_FILTER_PROFILE_MAP,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     LegacySensorDescription(
@@ -191,9 +221,22 @@ class LegacySensor(SensorEntity, LegacyEntity):
         return value if isinstance(value, str | int | float) else None
 
     @property
-    def extra_state_attributes(self) -> dict[str, int] | None:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Keep the original code beside a translated categorical value."""
         if self.entity_description.value_map is None:
             return None
         value = state_attribute(self._runtime, self.entity_description.state_attribute)
-        return {"raw_code": value} if isinstance(value, int) else None
+        if not isinstance(value, int):
+            return None
+        attributes: dict[str, Any] = {"raw_code": value}
+        if self.entity_description.key == "filter_airflow_profile":
+            curves = {}
+            if self._runtime.model in SIX_SPEED_MODELS:
+                curves = _A5_AIRFLOW_CURVES
+            elif self._runtime.model in FIVE_SPEED_MODELS:
+                curves = _X50_AIRFLOW_CURVES
+            if curve := curves.get(value):
+                attributes["airflow_by_speed_m3h"] = {
+                    str(speed): airflow for speed, airflow in enumerate(curve, 1)
+                }
+        return attributes

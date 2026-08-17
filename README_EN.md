@@ -46,8 +46,8 @@ not prove that every firmware accepts a command.
 - Learns company, protocol family, and authentication fields from replies.
 - Main fan entity: 0% powers off; nonzero speed, auto/manual, and a speed slider.
 - HA mode selector for sleep, turbo, and model-supported experimental deep clean.
-- PM2.5, air quality, current-run processed air, lifetime purified air,
-  remaining timer, and proven model sensors.
+- PM2.5, air quality, filter airflow profile, current-run processed air,
+  lifetime purified air, remaining timer, and proven model sensors.
 - Child lock, display, shutoff timer, and G30/G45 PTC controls.
 - Push updates from broadcasts with read-only refresh when broadcasts go stale.
 - Simplified Chinese translation; English fallback for every other HA language.

@@ -147,6 +147,7 @@ class A5A0Codec(DeviceCodec):
 
         raw_values: dict[str, int] = {
             "mode_raw": packed & 0x0F,
+            "filter_profile_raw": packed >> 4,
             "speed_raw": raw_speed,
             "timer_hours_raw": raw_timer,
             "air_quality_raw": raw_air_quality,
