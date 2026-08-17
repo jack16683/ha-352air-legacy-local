@@ -218,7 +218,7 @@ def _decode_schedule_response(
     source: tuple[str, int],
     device: DiscoveryResult,
 ) -> tuple[bytes, bytes, bytes, bytes] | None:
-    if source[0] != device.host:
+    if source != (device.host, UDP_PORT):
         return None
     outer = parse_outer_frame(datagram)
     expected_mac = mac_to_bytes(device.mac)

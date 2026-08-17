@@ -29,16 +29,16 @@ API.
 Thanks to [yymonday/ha-352-airpurifier](https://github.com/yymonday/ha-352-airpurifier)
 for preserving early X83/X50 community experience. Version 3 is a new
 GPL-3.0-or-later implementation and does not inherit that repository's source
-or Git history. See the [protocol analysis](docs/protocol-analysis.md) for the
-implementation evidence and remaining uncertainties. The full reverse-
-engineering notes are also published in the Chinese-language
-[APK static-analysis report](docs/apk-static-analysis.md).
+or Git history. The [research index](docs/README.md) links the
+[protocol analysis](docs/protocol-analysis.md), the complete Chinese-language
+[APK static-analysis report](docs/apk-static-analysis.md), and the sanitized
+[X83C capture and hardware-validation report](docs/x83c-capture-validation.md).
 
 ## Support confidence
 
 | Model | State | Control | Evidence |
 |---|---|---|---|
-| X83C | Supported | Supported | Verified on a 2019 unit; auth is learned from the device |
+| X83C | Supported | Supported | Hardware-verified; auth is learned from the device |
 | X83 | Supported | Supported | Reported working by the original project; same A5A0 family |
 | X50 | Supported | Experimental | Listed as hardware-tested upstream; firmware control differs |
 | X83C Plus | Experimental | Experimental | APK confirms the X83 family; no project hardware |
@@ -142,7 +142,7 @@ complete mode control. Do not bridge both entities.
 ## Privacy and safety
 
 - No 352 cloud connection or telemetry upload.
-- No APK, capture, certificate, full device MAC, private IP, HA token, or Wi-Fi
+- No APK, raw capture file, certificate, full device MAC, private IP, HA token, or Wi-Fi
   data; discovery uses only 352's public vendor OUI prefix.
 - Diagnostics redact hosts, MACs, auth values, and raw packets.
 - Discovery is read-only and never reproduces the old app's lock operation.

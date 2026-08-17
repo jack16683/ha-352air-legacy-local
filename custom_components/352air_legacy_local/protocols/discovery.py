@@ -15,6 +15,7 @@ from .base import (
 
 DISCOVERY_COMPANY = 0xF1
 DISCOVERY_AUTH = 0xCB76
+_DEVICE_PORT = 11530
 
 
 def encode_discovery_probe(mac: bytes, wire_type: int, sequence: int) -> bytes:
@@ -38,23 +39,28 @@ def decode_discovery_reply(
 
     outer = parse_outer_frame(datagram)
     peer = valid_source(source)
-    if outer is None or peer is None or len(datagram) < 27:
+    if (
+        outer is None
+        or peer is None
+        or peer[1] != _DEVICE_PORT
+        or outer.operation != 0x06
+        or len(outer.payload) < 11
+        or outer.payload[0] != 0x23
+    ):
         return None
     payload = outer.payload
-    for start, value in enumerate(payload):
-        if value != 0x23 or start + 11 > len(payload):
-            continue
-        embedded_mac = payload[start + 5 : start + 11]
-        if embedded_mac != outer.identity.mac:
-            continue
-        try:
-            host = str(ipaddress.IPv4Address(payload[start + 1 : start + 5]))
-        except ipaddress.AddressValueError:
-            continue
-        return DiscoveryResult(
-            identity=outer.identity,
-            host=host,
-            source=peer,
-            sequence=outer.sequence,
-        )
-    return None
+    embedded_mac = payload[5:11]
+    if embedded_mac != outer.identity.mac:
+        return None
+    try:
+        advertised_host = str(ipaddress.IPv4Address(payload[1:5]))
+    except ipaddress.AddressValueError:
+        return None
+    if advertised_host not in {peer[0], "0.0.0.0"}:
+        return None
+    return DiscoveryResult(
+        identity=outer.identity,
+        host=peer[0],
+        source=peer,
+        sequence=outer.sequence,
+    )

@@ -23,15 +23,16 @@ X83C 等设备本身仍会在局域网广播状态，也接受独立的 UDP 1153
 
 感谢 [yymonday/ha-352-airpurifier](https://github.com/yymonday/ha-352-airpurifier)
 保存了早期 X83/X50 接入经验。当前 v3 是新的 GPL-3.0-or-later 实现，
-不继承旧项目源码和 Git 历史。技术证据与已知边界见
-[协议分析](docs/protocol-analysis.md)，完整的旧 App 拆包结论见
-[APK 静态分析报告](docs/apk-static-analysis.md)。
+不继承旧项目源码和 Git 历史。全部公开资料见
+[研究资料索引](docs/README.md)：包括[协议分析](docs/protocol-analysis.md)、
+[APK 静态分析](docs/apk-static-analysis.md)和
+[X83C 脱敏抓包与实机验证](docs/x83c-capture-validation.md)。
 
 ## 支持程度
 
 | 型号 | 状态读取 | 控制 | 证据与说明 |
 |---|---|---|---|
-| X83C | 支持 | 支持 | 本项目 2019 款真机验证；鉴权码从设备学习 |
+| X83C | 支持 | 支持 | 本项目真机验证；鉴权码从设备学习 |
 | X83 | 支持 | 支持 | 原项目实机报告可用；v3 使用同一 A5A0 协议族 |
 | X50 | 支持 | 实验性 | 原项目列为实机可用；不同固件的本地控制存在差异 |
 | X83C Plus | 实验性 | 实验性 | APK 确认属于 X83 协议族，无对应真机 |
@@ -128,7 +129,7 @@ HomeKit 只桥接代理，原始 fan 留在 HA 中选择完整模式；不要同
 ## 隐私与安全
 
 - 不连接 352 云端，不上传遥测。
-- 不包含 APK、抓包、证书、完整设备 MAC、内网 IP、HA token 或 Wi-Fi
+- 不包含 APK、原始抓包文件、证书、完整设备 MAC、内网 IP、HA token 或 Wi-Fi
   信息；自动发现只使用公开的 352 厂商 OUI 前缀。
 - 诊断下载会脱敏主机、MAC、鉴权码和原始数据包。
 - 自动发现只执行读取，不复刻旧 App 的设备锁定操作；配置流程中的定时

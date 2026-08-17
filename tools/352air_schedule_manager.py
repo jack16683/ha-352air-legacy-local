@@ -19,10 +19,10 @@ import subprocess
 import sys
 import time
 import unicodedata
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass
-from typing import Callable, Iterable
-
 
 UDP_PORT = 11530
 DISCOVERY_AUTH = 0xCB76
@@ -134,7 +134,7 @@ def pad_display(value: object, width: int) -> str:
 
 def format_row(values: Iterable[object], widths: Iterable[int]) -> str:
     return "  ".join(
-        pad_display(value, width) for value, width in zip(values, widths)
+        pad_display(value, width) for value, width in zip(values, widths, strict=True)
     ).rstrip()
 
 
@@ -149,7 +149,9 @@ def choose_language() -> None:
 
 def normalize_mac(value: str) -> str:
     parts = re.split(r"[:-]", value.strip())
-    if len(parts) == 6 and all(re.fullmatch(r"[0-9A-Fa-f]{1,2}", part) for part in parts):
+    if len(parts) == 6 and all(
+        re.fullmatch(r"[0-9A-Fa-f]{1,2}", part) for part in parts
+    ):
         compact = "".join(part.zfill(2) for part in parts).upper()
     else:
         compact = re.sub(r"[^0-9A-Fa-f]", "", value).upper()
@@ -194,9 +196,7 @@ def crc16_genibus(data: bytes) -> int:
         crc ^= value << 8
         for _ in range(8):
             crc = (
-                ((crc << 1) ^ 0x1021) & 0xFFFF
-                if crc & 0x8000
-                else (crc << 1) & 0xFFFF
+                ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
             )
     return crc ^ 0xFFFF
 
@@ -248,7 +248,7 @@ def parse_time(value: str | None) -> tuple[int, int] | None:
 def encode_time(value: str | None) -> bytes:
     parsed = parse_time(value)
     if parsed is None:
-        return b"\xFF\xFF"
+        return b"\xff\xff"
     return bytes((bcd_encode(parsed[0]), bcd_encode(parsed[1])))
 
 
@@ -293,9 +293,7 @@ def parse_days(value: str) -> int:
             mask |= 1 << bit
         return mask
     tokens = [
-        part.strip().lower()
-        for part in re.split(r"[,，\s]+", value)
-        if part.strip()
+        part.strip().lower() for part in re.split(r"[,，\s]+", value) if part.strip()
     ]
     if not tokens:
         raise ScheduleError(
@@ -326,10 +324,7 @@ class ScheduleSlot:
 
     @property
     def empty(self) -> bool:
-        return (
-            all(value == 0 for value in self.raw[:6])
-            or self.raw[1:5] == b"\xFF" * 4
-        )
+        return all(value == 0 for value in self.raw[:6]) or self.raw[1:5] == b"\xff" * 4
 
     @property
     def enabled(self) -> bool:
@@ -350,12 +345,10 @@ class ScheduleSlot:
     @property
     def day_labels(self) -> list[str]:
         return [
-            label
-            for bit, label in enumerate(DAY_LABELS)
-            if self.days_mask & (1 << bit)
+            label for bit, label in enumerate(DAY_LABELS) if self.days_mask & (1 << bit)
         ]
 
-    def with_enabled(self, enabled: bool) -> "ScheduleSlot":
+    def with_enabled(self, enabled: bool) -> ScheduleSlot:
         if self.empty:
             raise ScheduleError(
                 ui(
@@ -373,7 +366,7 @@ class ScheduleSlot:
         turn_off: str | None,
         days_mask: int,
         enabled: bool,
-    ) -> "ScheduleSlot":
+    ) -> ScheduleSlot:
         if parse_time(turn_on) is None and parse_time(turn_off) is None:
             raise ScheduleError(
                 ui(
@@ -390,8 +383,8 @@ class ScheduleSlot:
         )
 
     @classmethod
-    def blank(cls) -> "ScheduleSlot":
-        return cls(b"\x00\xFF\xFF\xFF\xFF\x00\x00\x00")
+    def blank(cls) -> ScheduleSlot:
+        return cls(b"\x00\xff\xff\xff\xff\x00\x00\x00")
 
     def as_dict(self, slot: int) -> dict[str, object]:
         return {
@@ -423,7 +416,7 @@ class Device:
 def wrap_packet(device: Device, sequence: int, inner: bytes) -> bytes:
     payload = b"\x01" + inner
     return (
-        b"\xA1\x04"
+        b"\xa1\x04"
         + bytes.fromhex(device.mac)
         + bytes((len(payload) + 7, 0))
         + sequence.to_bytes(2, "big")
@@ -435,7 +428,7 @@ def wrap_packet(device: Device, sequence: int, inner: bytes) -> bytes:
 
 def discovery_packet(mac: str, family: int, sequence: int) -> bytes:
     return (
-        b"\xA1\x04"
+        b"\xa1\x04"
         + bytes.fromhex(mac)
         + b"\x08\x00"
         + sequence.to_bytes(2, "big")
@@ -447,7 +440,7 @@ def discovery_packet(mac: str, family: int, sequence: int) -> bytes:
 
 def schedule_query_packet(device: Device, sequence: int) -> bytes:
     inner = bytearray(14)
-    inner[0:4] = b"\xF0\x72\x00\x0C"
+    inner[0:4] = b"\xf0\x72\x00\x0c"
     inner[4:7] = bytes((device.family, 0x04, 0x0C))
     inner[7:9] = sequence.to_bytes(2, "big")
     inner[9:12] = b"\x01\x04\x04"
@@ -463,7 +456,7 @@ def schedule_write_packet(
         raise ValueError("exactly four schedule slots are required")
     body = b"\x04\x20" + b"".join(slot.raw for slot in slots)
     inner = bytearray(47)
-    inner[0:4] = b"\xF0\x72\x00\x2D"
+    inner[0:4] = b"\xf0\x72\x00\x2d"
     inner[4:7] = bytes((device.family, 0x04, 0x0B))
     inner[7:9] = sequence.to_bytes(2, "big")
     inner[9] = len(body)
@@ -473,19 +466,67 @@ def schedule_write_packet(
     return wrap_packet(device, sequence, bytes(inner))
 
 
+def parse_outer_payload(data: bytes) -> bytes | None:
+    """Return a payload only when the complete outer envelope is consistent."""
+    if len(data) < 16 or data[0] != 0xA1 or data[9] != 0x00 or data[8] < 7:
+        return None
+    payload_length = data[8] - 7
+    if len(data) != 16 + payload_length:
+        return None
+    return data[16:]
+
+
+def valid_f072_status(frame: bytes, family: int) -> bool:
+    """Validate the observed F072 response framing before passive discovery."""
+    minimum_data_length = 30 if family == 3 else 29
+    return (
+        len(frame) >= minimum_data_length + 10
+        and frame[:2] == b"\xf0\x72"
+        and frame[6] in {0x84, 0x03}
+        and frame[7] == 0x02
+        and crc16_genibus(frame[3:-2]) == int.from_bytes(frame[-2:], "big")
+    )
+
+
+def valid_passive_status(payload: bytes, family: int) -> bool:
+    """Recognize only complete state shapes established for each family."""
+    if family == 1:
+        return (
+            len(payload) == 17
+            and payload[:2] == b"\x03\xe5"
+            and payload[2] in {0xA1, 0xA2}
+        )
+    if family == 2:
+        return (
+            len(payload) in {33, 65}
+            and payload[:3] == b"\x02\x5a\xa1"
+            and (len(payload) == 33 or payload[33:35] == b"\x5a\xa1")
+        )
+    return (
+        family in {3, 4}
+        and len(payload) >= 17
+        and payload[0] == 0x01
+        and valid_f072_status(payload[1:], family)
+    )
+
+
 def parse_discovery_response(data: bytes, address: tuple[str, int]) -> Device | None:
+    payload = parse_outer_payload(data)
     if (
-        len(data) < 27
-        or data[0:2] != b"\xA1\x06"
-        or data[16] != 0x23
-        or data[2:8] != data[21:27]
+        payload is None
+        or address[1] != UDP_PORT
+        or data[0:2] != b"\xa1\x06"
+        or len(payload) < 11
+        or payload[0] != 0x23
+        or data[2:8] != payload[5:11]
         or data[13] not in FAMILY_NAMES
     ):
         return None
-    advertised = str(ipaddress.ip_address(data[17:21]))
-    host = address[0] if advertised == "0.0.0.0" else advertised
+    advertised = str(ipaddress.ip_address(payload[1:5]))
+    if advertised not in {address[0], "0.0.0.0"}:
+        return None
     return Device(
-        host=host,
+        host=address[0],
         mac=data[2:8].hex().upper(),
         family=data[13],
         company=data[12],
@@ -495,11 +536,13 @@ def parse_discovery_response(data: bytes, address: tuple[str, int]) -> Device | 
 
 
 def parse_passive_device(data: bytes, address: tuple[str, int]) -> Device | None:
+    payload = parse_outer_payload(data)
     if (
-        len(data) < 16
-        or data[0] != 0xA1
+        payload is None
+        or data[0:2] != b"\xa1\x04"
         or data[13] not in FAMILY_NAMES
         or address[1] != UDP_PORT
+        or not valid_passive_status(payload, data[13])
     ):
         return None
     mac = data[2:8].hex().upper()
@@ -518,17 +561,20 @@ def parse_passive_device(data: bytes, address: tuple[str, int]) -> Device | None
 def parse_schedule_response(
     data: bytes, address: tuple[str, int], device: Device
 ) -> list[ScheduleSlot] | None:
+    payload = parse_outer_payload(data)
     if (
-        address[0] != device.host
-        or len(data) < 61
-        or data[0] != 0xA1
+        address != (device.host, UDP_PORT)
+        or payload is None
+        or len(payload) < 48
         or data[2:8] != bytes.fromhex(device.mac)
+        or data[12] != device.company
         or data[13] != device.family
-        or data[16] != 0x02
+        or int.from_bytes(data[14:16], "big") != device.auth
+        or payload[0] != 0x02
     ):
         return None
-    inner = data[17:]
-    if len(inner) < 14 or inner[0:2] != b"\xF0\x72":
+    inner = payload[1:]
+    if len(inner) < 14 or inner[0:2] != b"\xf0\x72":
         return None
     declared_length = int.from_bytes(inner[2:4], "big") + 2
     if declared_length > len(inner) or declared_length < 47:
@@ -543,12 +589,7 @@ def parse_schedule_response(
         return None
     expected_crc = int.from_bytes(inner[-2:], "big")
     if crc16_genibus(inner[2:-2]) != expected_crc:
-        raise ScheduleError(
-            ui(
-                "定时查询响应的 CRC 校验失败",
-                "Schedule response CRC validation failed",
-            )
-        )
+        return None
     return [
         ScheduleSlot(bytes(inner[12 + index * 8 : 20 + index * 8]))
         for index in range(4)
@@ -576,7 +617,7 @@ class LanClient:
             ) from exc
         self.socket.settimeout(0.2)
 
-    def __enter__(self) -> "LanClient":
+    def __enter__(self) -> LanClient:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -613,7 +654,7 @@ class LanClient:
         while time.monotonic() < deadline:
             try:
                 data, address = self.socket.recvfrom(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             parsed = parser(data, address)
             if parsed is not None:
@@ -679,11 +720,14 @@ class LanClient:
         deadline = time.monotonic() + seconds
         last_new_device: float | None = None
         while time.monotonic() < deadline:
-            if last_new_device is not None and time.monotonic() - last_new_device >= 1.0:
+            if (
+                last_new_device is not None
+                and time.monotonic() - last_new_device >= 1.0
+            ):
                 break
             try:
                 data, address = self.socket.recvfrom(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             parsed = parse_discovery_response(data, address) or parse_passive_device(
                 data, address
@@ -796,7 +840,7 @@ def infer_local_subnet() -> ipaddress.IPv4Network | None:
 
 def warm_darwin_neighbor(host: str) -> None:
     """Make macOS complete neighbor resolution instead of queueing a UDP burst."""
-    try:
+    with suppress(FileNotFoundError, subprocess.TimeoutExpired):
         subprocess.run(
             ["/sbin/ping", "-n", "-q", "-c", "1", "-W", "200", host],
             stdout=subprocess.DEVNULL,
@@ -804,17 +848,13 @@ def warm_darwin_neighbor(host: str) -> None:
             timeout=1.0,
             check=False,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
 
 
 def warm_subnet(network: ipaddress.IPv4Network) -> bool:
     """Trigger neighbor discovery and report whether all probes completed."""
     hosts = list(network.hosts())
     if len(hosts) > 1024:
-        raise ScheduleError(
-            "为避免扫描过大网络，请使用不超过 1024 个地址的网段"
-        )
+        raise ScheduleError("为避免扫描过大网络，请使用不超过 1024 个地址的网段")
     if platform.system() == "Darwin":
         with ThreadPoolExecutor(max_workers=min(64, len(hosts))) as executor:
             tuple(executor.map(warm_darwin_neighbor, map(str, hosts)))
@@ -847,9 +887,8 @@ def wait_for_vendor_neighbors(
         if current != candidates:
             candidates = current
             last_change = now
-        if candidates and last_change is not None:
-            if now - last_change >= settle_time:
-                return candidates
+        if candidates and last_change is not None and now - last_change >= settle_time:
+            return candidates
         remaining = deadline - now
         if remaining <= 0:
             return candidates
@@ -860,9 +899,7 @@ def scan_devices(client: LanClient, subnet: str | None, timeout: float) -> list[
     client.drain()
     deadline = time.monotonic() + timeout
     network = (
-        ipaddress.ip_network(subnet, strict=False)
-        if subnet
-        else infer_local_subnet()
+        ipaddress.ip_network(subnet, strict=False) if subnet else infer_local_subnet()
     )
     if network is not None:
         if not isinstance(network, ipaddress.IPv4Network):
@@ -1071,15 +1108,19 @@ def print_schedule(slots: list[ScheduleSlot], as_json: bool = False) -> None:
             continue
         labels = DAY_LABELS_EN if LANGUAGE == "en" else DAY_LABELS
         selected_days = [
-            label
-            for bit, label in enumerate(labels)
-            if slot.days_mask & (1 << bit)
+            label for bit, label in enumerate(labels) if slot.days_mask & (1 << bit)
         ]
         if LANGUAGE == "en":
-            days = "Daily" if slot.days_mask == 0x7F else ",".join(selected_days) or "None"
+            days = (
+                "Daily" if slot.days_mask == 0x7F else ",".join(selected_days) or "None"
+            )
             status = "Enabled" if slot.enabled else "Disabled"
         else:
-            days = "每天" if slot.days_mask == 0x7F else "、".join(selected_days) or "未选择"
+            days = (
+                "每天"
+                if slot.days_mask == 0x7F
+                else "、".join(selected_days) or "未选择"
+            )
             status = "启用" if slot.enabled else "停用"
         values = (index, status, days, slot.turn_on or "--", slot.turn_off or "--")
         print(format_row(values, widths))
@@ -1113,11 +1154,19 @@ def require_clear_confirmation(args: argparse.Namespace) -> None:
 def write_and_verify(
     client: LanClient,
     device: Device,
+    baseline: list[ScheduleSlot],
     desired: list[ScheduleSlot],
     verifier: Callable[[list[ScheduleSlot]], bool],
 ) -> list[ScheduleSlot]:
-    # Never write without a successful read in the same socket session.
-    client.query(device)
+    # Refuse to overwrite a schedule that changed after the user viewed it.
+    fresh = client.query(device)
+    if [slot.raw for slot in fresh] != [slot.raw for slot in baseline]:
+        raise ScheduleError(
+            ui(
+                "设备定时在操作期间发生了变化；没有发送写入包，请重新查询后再试",
+                "The device schedule changed during this operation; no write packet was sent. Query again and retry",
+            )
+        )
     client.write_once(device, desired)
     time.sleep(0.9)
     current = client.query(device)
@@ -1164,24 +1213,31 @@ def command_device(args: argparse.Namespace) -> int:
                 not args.disabled,
             )
             expected = desired[args.slot - 1]
-            verifier = lambda slots: slots[args.slot - 1].raw[:5] == expected.raw[:5]
+
+            def verifier(slots: list[ScheduleSlot]) -> bool:
+                return slots[args.slot - 1].raw[:5] == expected.raw[:5]
+
         elif args.command in {"enable", "disable"}:
             desired[args.slot - 1] = desired[args.slot - 1].with_enabled(
                 args.command == "enable"
             )
             enabled = args.command == "enable"
-            verifier = lambda slots: (
-                not slots[args.slot - 1].empty
-                and slots[args.slot - 1].enabled == enabled
-            )
+
+            def verifier(slots: list[ScheduleSlot]) -> bool:
+                selected = slots[args.slot - 1]
+                return not selected.empty and selected.enabled == enabled
+
         elif args.command == "clear":
             desired = [ScheduleSlot.blank() for _ in range(4)]
-            verifier = lambda slots: all(slot.empty for slot in slots)
+
+            def verifier(slots: list[ScheduleSlot]) -> bool:
+                return all(slot.empty for slot in slots)
+
             require_clear_confirmation(args)
         else:
             raise ScheduleError(f"未知操作 {args.command}")
 
-        confirmed = write_and_verify(client, device, desired, verifier)
+        confirmed = write_and_verify(client, device, current, desired, verifier)
         print("操作成功，设备已连续两次回读确认：")
         print_schedule(confirmed, args.json)
         return 0
@@ -1333,12 +1389,16 @@ def interactive() -> int:
 def retry_prompt(destination_zh: str, destination_en: str) -> bool:
     """Pause after an interactive error instead of terminating the program."""
     try:
-        answer = input(
-            ui(
-                f"按回车{destination_zh}，输入 q 退出：",
-                f"Press Enter to {destination_en}, or q to quit: ",
+        answer = (
+            input(
+                ui(
+                    f"按回车{destination_zh}，输入 q 退出：",
+                    f"Press Enter to {destination_en}, or q to quit: ",
+                )
             )
-        ).strip().lower()
+            .strip()
+            .lower()
+        )
     except EOFError:
         return False
     return answer not in {"q", "quit", "退出"}
@@ -1376,7 +1436,9 @@ def interactive_device_menu(client: LanClient, device: Device) -> bool:
             if choice == 1:
                 continue
             if choice == 2:
-                slot = prompt_choice(ui("定时槽（1-4）：", "Schedule slot (1-4): "), 1, 4)
+                slot = prompt_choice(
+                    ui("定时槽（1-4）：", "Schedule slot (1-4): "), 1, 4
+                )
                 turn_on = input(
                     ui(
                         "开机时间（如 1700，不设置填 -）：",
@@ -1410,8 +1472,11 @@ def interactive_device_menu(client: LanClient, device: Device) -> bool:
                 confirmed = write_and_verify(
                     client,
                     device,
+                    current,
                     desired,
-                    lambda slots: slots[slot - 1].raw[:5] == expected.raw[:5],
+                    lambda slots, selected=slot, expected_slot=expected: (
+                        slots[selected - 1].raw[:5] == expected_slot.raw[:5]
+                    ),
                 )
             elif choice in {3, 4}:
                 slot = prompt_choice(
@@ -1423,25 +1488,30 @@ def interactive_device_menu(client: LanClient, device: Device) -> bool:
                 confirmed = write_and_verify(
                     client,
                     device,
+                    current,
                     desired,
-                    lambda slots: (
-                        not slots[slot - 1].empty
-                        and slots[slot - 1].enabled == enabled
+                    lambda slots, selected=slot, expected_enabled=enabled: (
+                        not slots[selected - 1].empty
+                        and slots[selected - 1].enabled == expected_enabled
                     ),
                 )
             else:
-                if input(
-                    ui(
-                        "输入 CLEAR 确认清除全部 4 个槽：",
-                        "Enter CLEAR to clear all four slots: ",
-                    )
-                ).strip() != "CLEAR":
+                if (
+                    input(
+                        ui(
+                            "输入 CLEAR 确认清除全部 4 个槽：",
+                            "Enter CLEAR to clear all four slots: ",
+                        )
+                    ).strip()
+                    != "CLEAR"
+                ):
                     print(ui("已取消。", "Cancelled."))
                     continue
                 desired = [ScheduleSlot.blank() for _ in range(4)]
                 confirmed = write_and_verify(
                     client,
                     device,
+                    current,
                     desired,
                     lambda slots: all(slot.empty for slot in slots),
                 )

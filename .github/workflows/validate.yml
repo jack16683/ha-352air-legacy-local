@@ -17,13 +17,22 @@ jobs:
           python-version: "3.13"
       - name: Compile Python sources
         run: python -m compileall -q custom_components tools
-      - name: Lint integration sources
+      - name: Lint Python sources
         uses: astral-sh/ruff-action@v3
         with:
-          args: check custom_components
+          args: check custom_components tools
+      - name: Check Python formatting
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: format --check custom_components tools
       - name: Check sensitive files
         run: |
-          if find . -type f \( -name '*.pcap' -o -name '*.pcapng' -o -name '*.apk' -o -name '.ha_token' \) -print -quit | grep -q .; then
-            echo 'Sensitive capture, APK, or token file found in repository.'
+          if find . -type f \( \
+            -name '*.apk' -o -name '*.cap' -o -name '*.pcap' -o \
+            -name '*.pcapng' -o -name '*.der' -o -name '*.key' -o \
+            -name '*.pem' -o -name '*.token' -o -name '.env' -o \
+            -name '.ha_token' \
+          \) -print -quit | grep -q .; then
+            echo 'Raw research input, capture, certificate, or token found.'
             exit 1
           fi

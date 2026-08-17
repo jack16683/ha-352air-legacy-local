@@ -1,7 +1,6 @@
 [tool.ruff]
 target-version = "py313"
 line-length = 88
-exclude = ["tools/352air_schedule_manager.py"]
 
 [tool.ruff.lint]
 select = [
@@ -26,6 +25,11 @@ select = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.352air_legacy_local"]
+
+[tool.ruff.lint.per-file-ignores]
+# The standalone bilingual CLI intentionally contains Chinese punctuation and
+# keeps prose readable instead of wrapping every translated terminal message.
+"tools/352air_schedule_manager.py" = ["E501", "PERF203", "PLW0603", "RUF001"]
 
 [tool.mypy]
 # HA 2026.8 itself uses Python 3.14 syntax. Runtime syntax compatibility with
