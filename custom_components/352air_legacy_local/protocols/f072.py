@@ -492,7 +492,8 @@ def _g30_mode(value: int) -> ModeValue:
 def _safe_cumulative_volume(base: int, exponent: int) -> int | None:
     """Retain raw high exponents without publishing impractical numeric values."""
 
-    # The retired app defined multipliers only for exponents 0 through 3.
-    if not 0 <= exponent <= 3:
+    # The same encoded counter used by captured X83C hardware reaches exponent
+    # 4 even though the retired app's parser branches only through 3.
+    if not 0 <= exponent <= 4:
         return None
-    return base * (1, 10, 100, 1000)[exponent]
+    return base * (1, 10, 100, 1000, 10000)[exponent]

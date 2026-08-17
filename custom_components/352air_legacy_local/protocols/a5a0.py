@@ -252,7 +252,8 @@ def _a5_power(value: int) -> PowerState | None:
 def _safe_cumulative_volume(base: int, exponent: int) -> int | None:
     """Avoid publishing an unbounded diagnostic number from arbitrary bytes."""
 
-    # The retired app defined multipliers only for exponents 0 through 3.
-    if not 0 <= exponent <= 3:
+    # The retired app branches only through exponent 3, but captured X83C
+    # hardware uses exponent 4 for its lifetime purified-air counter.
+    if not 0 <= exponent <= 4:
         return None
-    return base * (1, 10, 100, 1000)[exponent]
+    return base * (1, 10, 100, 1000, 10000)[exponent]
