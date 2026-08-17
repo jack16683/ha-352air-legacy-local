@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
@@ -71,6 +71,7 @@ class RuntimeData:
         """Build the one shared HA device descriptor."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.mac)},
+            connections={(CONNECTION_NETWORK_MAC, self.mac)},
             manufacturer="352",
             model=MODEL_OPTIONS.get(self.model, self.model),
             name=f"352 Air {MODEL_OPTIONS.get(self.model, self.model)}",
