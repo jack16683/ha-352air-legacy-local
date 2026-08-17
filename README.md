@@ -18,7 +18,8 @@
 感谢 [yymonday/ha-352-airpurifier](https://github.com/yymonday/ha-352-airpurifier)
 保存了早期 X83/X50 接入经验。当前 v3 是新的 GPL-3.0-or-later 实现，
 不继承旧项目源码和 Git 历史。技术证据与已知边界见
-[协议分析](docs/protocol-analysis.md)。
+[协议分析](docs/protocol-analysis.md)，完整的旧 App 拆包结论见
+[APK 静态分析报告](docs/apk-static-analysis.md)。
 
 ## 支持程度
 

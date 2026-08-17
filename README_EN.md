@@ -21,7 +21,9 @@ Thanks to [yymonday/ha-352-airpurifier](https://github.com/yymonday/ha-352-airpu
 for preserving early X83/X50 community experience. Version 3 is a new
 GPL-3.0-or-later implementation and does not inherit that repository's source
 or Git history. See the [protocol analysis](docs/protocol-analysis.md) for the
-evidence and remaining uncertainties.
+implementation evidence and remaining uncertainties. The full reverse-
+engineering notes are also published in the Chinese-language
+[APK static-analysis report](docs/apk-static-analysis.md).
 
 ## Support confidence
 

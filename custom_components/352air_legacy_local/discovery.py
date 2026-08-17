@@ -13,7 +13,14 @@ import ipaddress
 from contextlib import suppress
 from dataclasses import dataclass
 
-from .const import DISCOVERY_TIMEOUT_SECONDS, UDP_PORT, mac_to_bytes, normalize_mac
+from .const import (
+    DISCOVERY_PASSIVE_TIMEOUT_SECONDS,
+    DISCOVERY_TIMEOUT_SECONDS,
+    UDP_PORT,
+    mac_to_bytes,
+    normalize_mac,
+)
+from .protocols.base import f072_response_crc_is_valid, parse_outer_frame
 from .protocols.discovery import decode_discovery_reply, encode_discovery_probe
 from .udp import async_acquire_udp_endpoint, async_release_udp_endpoint
 
@@ -71,11 +78,71 @@ def _decode_reply(
     )
 
 
+def _decode_passive_status(
+    datagram: bytes,
+    source: tuple[str, int],
+    expected_host: str,
+    expected_mac: bytes,
+    wire_types: set[int],
+) -> DiscoveryResult | None:
+    """Learn identity from a strictly validated, non-mutating state broadcast."""
+    if source != (expected_host, UDP_PORT):
+        return None
+    outer = parse_outer_frame(datagram)
+    if (
+        outer is None
+        or outer.operation != 0x06
+        or outer.identity.mac != expected_mac
+        or outer.identity.wire_type not in wire_types
+    ):
+        return None
+
+    payload = outer.payload
+    wire_type = outer.identity.wire_type
+    valid_state = False
+    if wire_type == 1:
+        valid_state = (
+            len(payload) == 17
+            and payload[:2] == b"\x03\xe5"
+            and payload[2] in {0xA1, 0xA2}
+        )
+    elif wire_type == 2:
+        valid_state = len(payload) == 33 and payload[:3] == b"\x01\xa5\xa0"
+    elif wire_type in {3, 4} and len(payload) >= 16 and payload[0] == 0x01:
+        frame = payload[1:]
+        minimum_data_length = 30 if wire_type == 3 else 29
+        valid_state = (
+            len(frame) >= minimum_data_length + 10
+            and frame[:2] == b"\xf0\x72"
+            and frame[6] in {0x84, 0x03}
+            and frame[7] == 0x02
+            and f072_response_crc_is_valid(frame)
+        )
+    if not valid_state:
+        return None
+
+    return DiscoveryResult(
+        host=expected_host,
+        mac=normalize_mac(outer.identity.mac),
+        company=outer.identity.company,
+        wire_type=wire_type,
+        auth=outer.identity.auth,
+    )
+
+
 class _ReadOnlyDiscoveryProtocol:
     """Collect the first matching reply without retaining packet contents."""
 
-    def __init__(self, expected_mac: bytes, sequences: set[int]) -> None:
+    def __init__(
+        self,
+        expected_host: str,
+        expected_mac: bytes,
+        wire_types: set[int],
+        sequences: set[int],
+    ) -> None:
+        self._expected_host = expected_host
         self._expected_mac = expected_mac
+        self._wire_types = wire_types
         self._sequences = sequences
         self.result: DiscoveryResult | None = None
         self.response_received = asyncio.Event()
@@ -84,6 +151,14 @@ class _ReadOnlyDiscoveryProtocol:
         if self.result is not None:
             return
         result = _decode_reply(data, addr, self._expected_mac, self._sequences)
+        if result is None:
+            result = _decode_passive_status(
+                data,
+                addr,
+                self._expected_host,
+                self._expected_mac,
+                self._wire_types,
+            )
         if result is not None:
             self.result = result
             self.response_received.set()
@@ -95,6 +170,7 @@ async def async_discover_device(
     wire_types: tuple[int, ...] = (1, 2, 3, 4),
     *,
     response_timeout: float = DISCOVERY_TIMEOUT_SECONDS,
+    passive_timeout: float = DISCOVERY_PASSIVE_TIMEOUT_SECONDS,
 ) -> DiscoveryResult:
     """Probe a known address/MAC with only documented read-only packets.
 
@@ -113,10 +189,12 @@ async def async_discover_device(
         raise DiscoveryError("Unsupported discovery wire type")
 
     sequences = {
-        ((index + 1) * 0x1F31) & 0xFFFF
+        (0x002A + index) & 0xFFFF
         for index, _wire_type in enumerate(selected_wire_types)
     }
-    protocol = _ReadOnlyDiscoveryProtocol(target_mac, sequences)
+    protocol = _ReadOnlyDiscoveryProtocol(
+        str(parsed_host), target_mac, set(selected_wire_types), sequences
+    )
     endpoint = None
     resend_task: asyncio.Task[None] | None = None
     try:
@@ -128,7 +206,7 @@ async def async_discover_device(
         def send_probes() -> None:
             assert endpoint is not None
             for index, wire_type in enumerate(selected_wire_types):
-                sequence = ((index + 1) * 0x1F31) & 0xFFFF
+                sequence = (0x002A + index) & 0xFFFF
                 endpoint.sendto(
                     encode_discovery_probe(target_mac, wire_type, sequence),
                     (str(parsed_host), UDP_PORT),
@@ -147,8 +225,15 @@ async def async_discover_device(
             await asyncio.wait_for(
                 protocol.response_received.wait(), timeout=response_timeout
             )
-        except TimeoutError as err:
-            raise DiscoveryTimeoutError from err
+        except TimeoutError:
+            if passive_timeout <= 0:
+                raise DiscoveryTimeoutError from None
+            try:
+                await asyncio.wait_for(
+                    protocol.response_received.wait(), timeout=passive_timeout
+                )
+            except TimeoutError as err:
+                raise DiscoveryTimeoutError from err
 
         if protocol.result is None:
             raise DiscoveryTimeoutError
