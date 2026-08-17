@@ -11,11 +11,20 @@ devices. It reads state and sends controls over LAN UDP port 11530, without a
 
 ## Why this project exists
 
-The 352Air app used around 2019 can no longer be relied on for account login,
-while devices such as the X83C still broadcast state and accept local control.
-This project documented the LAN protocol through static APK analysis,
-sanitized packet observations, and X83C hardware validation, then created a
-new implementation for the Home Assistant 2026.8 API.
+This is not a vague old-app compatibility problem. The APK hard-codes account
+login, token validation, and the device list to `https://352.yunext.com`; its
+device-cloud bootstrap also uses port `11591` on the same host. On 2026-08-18,
+both Cloudflare and Google public DNS-over-HTTPS resolvers returned `NXDOMAIN`
+for that hostname. The parent domain still exists, but the legacy service host
+record has been removed. The app therefore cannot locate its server before it
+can even validate a password; this is not a purifier failure or a wrong-password
+error.
+
+Devices such as the X83C still broadcast state and accept independent local
+control over UDP port 11530. This project documented that LAN protocol through
+static APK analysis, sanitized packet observations, and X83C hardware
+validation, then created a new implementation for the Home Assistant 2026.8
+API.
 
 Thanks to [yymonday/ha-352-airpurifier](https://github.com/yymonday/ha-352-airpurifier)
 for preserving early X83/X50 community experience. Version 3 is a new
