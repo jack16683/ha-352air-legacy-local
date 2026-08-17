@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,8 +27,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import ConfigEntry
 from .const import (
     CONTINUOUS_AIRFLOW_MODELS,
+    FIVE_SPEED_MODELS,
     MODEL_M25,
     PURIFIER_MODELS,
+    SIX_SPEED_MODELS,
 )
 from .entity import LegacyEntity, state_attribute
 from .runtime import RuntimeData
@@ -39,6 +42,13 @@ class LegacySensorDescription(SensorEntityDescription):
 
     state_attribute: str
     supported_models: frozenset[str]
+    value_map: Mapping[int, str] | None = None
+
+
+_AIR_QUALITY_OPTIONS = ["excellent", "good", "poor"]
+_AIR_QUALITY_MAP = {1: "excellent", 2: "good", 3: "poor"}
+_LINKAGE_OPTIONS = ["not_linked", "linked"]
+_LINKAGE_MAP = {0: "not_linked", 1: "linked"}
 
 
 _SENSORS: tuple[LegacySensorDescription, ...] = (
@@ -52,12 +62,13 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
     ),
     LegacySensorDescription(
-        key="raw_air_quality",
-        translation_key="raw_air_quality",
+        key="air_quality",
+        translation_key="air_quality",
         state_attribute="air_quality",
         supported_models=PURIFIER_MODELS,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
+        device_class=SensorDeviceClass.ENUM,
+        options=_AIR_QUALITY_OPTIONS,
+        value_map=_AIR_QUALITY_MAP,
     ),
     LegacySensorDescription(
         key="timer_remaining",
@@ -69,8 +80,8 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
     ),
     LegacySensorDescription(
-        key="processed_air_total",
-        translation_key="processed_air_total",
+        key="current_run_processed_air",
+        translation_key="current_run_processed_air",
         state_attribute="processed_air",
         supported_models=PURIFIER_MODELS,
         device_class=SensorDeviceClass.VOLUME,
@@ -92,7 +103,16 @@ _SENSORS: tuple[LegacySensorDescription, ...] = (
         state_attribute="filter_type_raw",
         supported_models=PURIFIER_MODELS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
+    ),
+    LegacySensorDescription(
+        key="linkage_state",
+        translation_key="linkage_state",
+        state_attribute="linkage_raw",
+        supported_models=SIX_SPEED_MODELS | FIVE_SPEED_MODELS | {MODEL_M25},
+        device_class=SensorDeviceClass.ENUM,
+        options=_LINKAGE_OPTIONS,
+        value_map=_LINKAGE_MAP,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     LegacySensorDescription(
         key="temperature",
@@ -162,4 +182,18 @@ class LegacySensor(SensorEntity, LegacyEntity):
     def native_value(self) -> int | float | str | None:
         """Return no value if the optional field was absent from a valid packet."""
         value = state_attribute(self._runtime, self.entity_description.state_attribute)
+        if self.entity_description.value_map is not None:
+            return (
+                self.entity_description.value_map.get(value)
+                if isinstance(value, int)
+                else None
+            )
         return value if isinstance(value, str | int | float) else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int] | None:
+        """Keep the original code beside a translated categorical value."""
+        if self.entity_description.value_map is None:
+            return None
+        value = state_attribute(self._runtime, self.entity_description.state_attribute)
+        return {"raw_code": value} if isinstance(value, int) else None

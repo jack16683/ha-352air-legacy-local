@@ -12,6 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ConfigEntry
 from .const import (
+    CONTINUOUS_AIRFLOW_MODELS,
     DOMAIN,
     FIVE_SPEED_MODELS,
     MODEL_M25,
@@ -56,9 +57,9 @@ async def async_setup_entry(
     runtime = entry.runtime_data
     entities: list[SelectEntity] = []
     if model_is_purifier(runtime.model):
-        entities.extend(
-            (OperatingModeSelect(runtime), TimerSelect(runtime), PtcSelect(runtime))
-        )
+        entities.extend((OperatingModeSelect(runtime), TimerSelect(runtime)))
+    if runtime.model in CONTINUOUS_AIRFLOW_MODELS:
+        entities.append(PtcSelect(runtime))
     if runtime.model == MODEL_M25:
         entities.append(BacklightSelect(runtime))
     async_add_entities(entities)

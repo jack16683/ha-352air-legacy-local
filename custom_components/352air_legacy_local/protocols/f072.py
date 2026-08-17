@@ -287,6 +287,7 @@ class F072Codec(DeviceCodec):
             processed_air_base=processed_base,
             purified_air_exponent=purified_exponent,
             purified_air_base=purified_base,
+            linkage_raw=data_area[29],
             raw_values=raw_values,
         )
         return DecodedPacket(

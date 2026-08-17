@@ -190,6 +190,7 @@ class A5A0Codec(DeviceCodec):
             processed_air_base=processed_base,
             purified_air_exponent=purified_exponent,
             purified_air_base=purified_base,
+            linkage_raw=payload[27],
             raw_values=raw_values,
         )
         return DecodedPacket(

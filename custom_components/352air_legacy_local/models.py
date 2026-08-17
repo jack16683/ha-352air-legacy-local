@@ -229,6 +229,7 @@ class DeviceState:
     humidity: int | None = None
     co2: int | None = None
     airflow_m3h: int | None = None
+    linkage_raw: int | None = None
     backlight: int | None = None
     raw_values: Mapping[str, int | bytes | str] = field(default_factory=dict)
 

@@ -75,6 +75,7 @@ class M25Codec(DeviceCodec):
                 return None
             state = DeviceState(
                 pm25=int.from_bytes(payload[3:5], "big"),
+                linkage_raw=payload[7],
                 raw_values={
                     "m25_response_form": response_form,
                     "linkage_raw": payload[7],

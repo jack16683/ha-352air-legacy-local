@@ -90,20 +90,32 @@
       "pm25": {
         "name": "PM2.5"
       },
-      "raw_air_quality": {
-        "name": "空气质量原始等级"
+      "air_quality": {
+        "name": "空气质量",
+        "state": {
+          "excellent": "优",
+          "good": "良",
+          "poor": "差"
+        }
       },
       "timer_remaining": {
         "name": "定时剩余时间"
       },
-      "processed_air_total": {
-        "name": "累计处理空气量"
+      "current_run_processed_air": {
+        "name": "本次开机处理空气量"
       },
       "purified_air_total": {
         "name": "累计净化空气量"
       },
       "filter_type_raw": {
         "name": "滤芯类型原始值"
+      },
+      "linkage_state": {
+        "name": "联动状态",
+        "state": {
+          "not_linked": "未联动",
+          "linked": "已联动"
+        }
       },
       "temperature": {
         "name": "温度"

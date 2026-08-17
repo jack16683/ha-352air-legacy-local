@@ -90,20 +90,32 @@
       "pm25": {
         "name": "PM2.5"
       },
-      "raw_air_quality": {
-        "name": "Raw air quality class"
+      "air_quality": {
+        "name": "Air quality",
+        "state": {
+          "excellent": "Excellent",
+          "good": "Good",
+          "poor": "Poor"
+        }
       },
       "timer_remaining": {
         "name": "Timer remaining"
       },
-      "processed_air_total": {
-        "name": "Total processed air"
+      "current_run_processed_air": {
+        "name": "Current-run processed air"
       },
       "purified_air_total": {
         "name": "Total purified air"
       },
       "filter_type_raw": {
         "name": "Raw filter type"
+      },
+      "linkage_state": {
+        "name": "Linked-device state",
+        "state": {
+          "not_linked": "Not linked",
+          "linked": "Linked"
+        }
       },
       "temperature": {
         "name": "Temperature"
