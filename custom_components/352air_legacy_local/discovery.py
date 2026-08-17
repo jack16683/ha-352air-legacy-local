@@ -91,7 +91,7 @@ def _decode_passive_status(
     outer = parse_outer_frame(datagram)
     if (
         outer is None
-        or outer.operation != 0x06
+        or outer.operation != 0x04
         or outer.identity.mac != expected_mac
         or outer.identity.wire_type not in wire_types
     ):
@@ -107,7 +107,11 @@ def _decode_passive_status(
             and payload[2] in {0xA1, 0xA2}
         )
     elif wire_type == 2:
-        valid_state = len(payload) == 33 and payload[:3] == b"\x01\xa5\xa0"
+        valid_state = (
+            len(payload) in {33, 65}
+            and payload[:3] == b"\x02\x5a\xa1"
+            and (len(payload) == 33 or payload[33:35] == b"\x5a\xa1")
+        )
     elif wire_type in {3, 4} and len(payload) >= 16 and payload[0] == 0x01:
         frame = payload[1:]
         minimum_data_length = 30 if wire_type == 3 else 29

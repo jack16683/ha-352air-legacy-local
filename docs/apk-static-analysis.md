@@ -159,6 +159,12 @@ A5 A0 <CMD> <VALUE> 00 <CHECKSUM>
 01 A5 A0 <CMD> <VALUE> 00 <CHECKSUM>
 ```
 
+实机接收方向使用不同的状态头：X83C 状态 payload 以 `02 5A A1`
+开头，外层 operation 为 `04`。普通状态 payload 长 33 字节；另观察到
+一个 65 字节的模式切换帧，其结构是一个 route 字节后连续两个 32 字节
+状态记录，最后一条是当前状态。查询/控制请求的 `01 A5 A0` 不能用于
+识别状态响应。
+
 ### 动作表
 
 | 动作 | cmd | APK 发出的 value |

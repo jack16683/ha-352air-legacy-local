@@ -329,6 +329,7 @@ class F072Codec(DeviceCodec):
             "power_raw": raw_power,
             "ptc_raw": raw_ptc,
             "airflow_raw": raw_flow,
+            "online_total_raw": int.from_bytes(data_area[19:21], "big"),
         }
         child_lock = _f072_lock(raw_lock)
         display_on = _f072_on_off(raw_display)

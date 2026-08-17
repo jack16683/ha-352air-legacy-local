@@ -420,6 +420,8 @@ class LocalDeviceClient:
     def _datagram_received(self, datagram: bytes, source: Endpoint) -> None:
         if self._closed:
             return
+        if source[1] != self.port:
+            return
         loop = self._loop
         if loop is None:
             return
@@ -482,7 +484,11 @@ class LocalDeviceClient:
     ) -> None:
         assert packet.state is not None
         outer_operation = packet.raw_metadata.get("outer_operation")
-        is_broadcast = outer_operation == 0x06
+        # X83-family state responses and periodic broadcasts both use outer
+        # operation 0x04. Discovery replies use 0x06. A fresh valid state may
+        # therefore satisfy a read, while writes still require field-level
+        # confirmation below.
+        is_broadcast = outer_operation in {0x04, 0x06}
         for pending in tuple(self._pending):
             if pending.future.done() or received_at < pending.created_at:
                 continue

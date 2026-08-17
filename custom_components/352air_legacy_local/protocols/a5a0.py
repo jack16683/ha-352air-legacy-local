@@ -27,6 +27,8 @@ from .base import (
 _ROUTE = 0x01
 _PREFIX = b"\xa5\xa0"
 _STATE_PAYLOAD_LENGTH = 33  # 16-byte envelope + 33-byte payload = 49 bytes.
+_DOUBLE_STATE_PAYLOAD_LENGTH = 65
+_STATE_RESPONSE_PREFIX = b"\x02\x5a\xa1"
 
 _COMMAND_CODES = {
     CommandOperation.MODE: 0x51,
@@ -77,24 +79,44 @@ class A5A0Codec(DeviceCodec):
         if outer is None or peer is None or outer.identity.wire_type != 2:
             return None
         payload = outer.payload
-        if len(payload) >= 3 and payload[0] == _ROUTE and payload[1:3] == _PREFIX:
+        if payload.startswith(_STATE_RESPONSE_PREFIX):
             if len(payload) == _STATE_PAYLOAD_LENGTH:
                 return self._decode_state(
                     outer.identity, outer.sequence, payload, peer, outer_metadata(outer)
                 )
-            if len(payload) == 7 and _valid_control_checksum(payload):
-                metadata = outer_metadata(outer)
-                metadata["command"] = payload[3]
-                metadata["value"] = payload[4]
-                return DecodedPacket(
-                    identity=outer.identity,
-                    sequence=outer.sequence,
-                    kind=PacketKind.ACK,
-                    state=None,
-                    source=peer,
-                    family=self.family,
-                    raw_metadata=metadata,
+            if (
+                len(payload) == _DOUBLE_STATE_PAYLOAD_LENGTH
+                and payload[33:35] == b"\x5a\xa1"
+            ):
+                # One X83C transition capture contains two consecutive 32-byte
+                # records under one leading route byte. The final record is
+                # the current state.
+                current_payload = payload[:1] + payload[33:]
+                return self._decode_state(
+                    outer.identity,
+                    outer.sequence,
+                    current_payload,
+                    peer,
+                    outer_metadata(outer),
                 )
+        if (
+            len(payload) == 7
+            and payload[0] == _ROUTE
+            and payload[1:3] == _PREFIX
+            and _valid_control_checksum(payload)
+        ):
+            metadata = outer_metadata(outer)
+            metadata["command"] = payload[3]
+            metadata["value"] = payload[4]
+            return DecodedPacket(
+                identity=outer.identity,
+                sequence=outer.sequence,
+                kind=PacketKind.ACK,
+                state=None,
+                source=peer,
+                family=self.family,
+                raw_metadata=metadata,
+            )
         return None
 
     @staticmethod
@@ -131,6 +153,8 @@ class A5A0Codec(DeviceCodec):
             "child_lock_raw": raw_lock,
             "display_raw": raw_display,
             "power_raw": raw_power,
+            "online_total_raw": int.from_bytes(payload[19:21], "big"),
+            "linkage_raw": payload[27],
         }
         child_lock = _a5_bool(raw_lock)
         display_on = _a5_display(raw_display)

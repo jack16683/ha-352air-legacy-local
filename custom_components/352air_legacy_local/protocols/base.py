@@ -81,7 +81,7 @@ def parse_outer_frame(datagram: bytes | bytearray | memoryview) -> OuterFrame | 
     if not isinstance(datagram, (bytes, bytearray, memoryview)):
         return None
     data = bytes(datagram)
-    if len(data) < OUTER_HEADER_LENGTH or data[0] != OUTER_MARKER:
+    if len(data) < OUTER_HEADER_LENGTH or data[0] != OUTER_MARKER or data[9] != 0x00:
         return None
     encoded_length = data[8]
     if encoded_length < 7:
