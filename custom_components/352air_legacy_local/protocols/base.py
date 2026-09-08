@@ -151,17 +151,16 @@ def f072_request_crc_is_valid(frame: bytes) -> bool:
 
 
 def f072_response_crc_is_valid(frame: bytes) -> bool:
-    """Validate the distinct observed response CRC range.
+    """Validate a response after removing the one-byte route prefix.
 
-    Response parser facts establish the CRC input as bytes from offset three
-    through the byte before the trailing two-byte CRC.  The outer envelope has
-    already supplied the only documented response-length check.
+    Android checks payload[3:-2], where payload includes the route byte.
+    In this route-free frame the same CRC input starts at offset two.
     """
 
-    if len(frame) < 10 or frame[:2] != b"\xf0\x72":
+    if len(frame) < 9 or frame[:2] != b"\xf0\x72":
         return False
     expected_crc = int.from_bytes(frame[-2:], "big")
-    return crc16_genibus(frame[3:-2]) == expected_crc
+    return crc16_genibus(frame[2:-2]) == expected_crc
 
 
 def outer_metadata(frame: OuterFrame) -> dict[str, int | bytes | str]:

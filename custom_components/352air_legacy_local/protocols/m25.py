@@ -65,7 +65,7 @@ class M25Codec(DeviceCodec):
         if outer is None or peer is None or outer.identity.wire_type != 1:
             return None
         payload = outer.payload
-        if len(payload) < 3 or payload[:2] != b"\x03\xe5":
+        if len(payload) < 3 or payload[:2] != b"\x03\xf5":
             return None
         response_form = payload[2]
         metadata = outer_metadata(outer)

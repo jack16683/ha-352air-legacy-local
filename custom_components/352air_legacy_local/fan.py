@@ -70,8 +70,10 @@ _MODE_OPTIONS_BY_MODEL: dict[str, dict[str, int]] = {
             "turbo": 3,
             "deep_clean": 5,
         }
-        for model in (MODEL_X50, MODEL_X50S, MODEL_X60, MODEL_X70)
+        for model in (MODEL_X50, MODEL_X60, MODEL_X70)
     },
+    # X50S hardware feedback confirms that deep clean is not available.
+    MODEL_X50S: {"auto": 1, "manual": 4, "sleep": 2, "turbo": 3},
     **{
         model: {"auto": 1, "manual": 4, "deep_clean": 5}
         for model in (MODEL_G30, MODEL_G45)

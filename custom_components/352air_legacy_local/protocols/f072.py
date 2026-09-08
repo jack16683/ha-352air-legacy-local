@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from ..models import (
     Command,
     CommandContext,
@@ -31,6 +33,7 @@ from .base import (
 
 _ROUTE = 0x01
 _PREFIX = b"\xf0\x72"
+_LOGGER = logging.getLogger(__name__)
 
 _X50_COMMANDS = {
     CommandOperation.MODE: 0x51,
@@ -114,30 +117,39 @@ class F072Codec(DeviceCodec):
 
         outer = parse_outer_frame(datagram)
         peer = valid_source(source)
-        if outer is None or peer is None or outer.identity.wire_type != self._wire_type:
+        if outer is None:
+            _LOGGER.debug("Rejected F072 candidate: invalid outer framing")
+            return None
+        if peer is None or outer.identity.wire_type != self._wire_type:
             return None
         payload = outer.payload
-        if len(payload) < 16 or payload[0] != _ROUTE:
+        if len(payload) < 14 or payload[0] != _ROUTE:
+            _LOGGER.debug("Rejected F072 candidate: invalid route or payload length")
             return None
         frame = payload[1:]
         # Responses have a different header from the fixed 15-byte request.
-        # Parser facts establish response marker byte 6 as 84 or 03, response
-        # type byte 7 as 02, and the state area beginning at byte 8.
-        if (
-            not f072_response_crc_is_valid(frame)
-            or frame[6] not in {0x84, 0x03}
-            or frame[7] != 0x02
-        ):
+        # Android indexes the routed payload: marker 6, type 7, data 8.
+        # Removing the route shifts each of those offsets down by one.
+        if frame[:2] != _PREFIX:
+            _LOGGER.debug("Rejected F072 candidate: invalid prefix")
+            return None
+        if not f072_response_crc_is_valid(frame):
+            _LOGGER.debug(
+                "Rejected F072 packet: CRC mismatch, frame_len=%d", len(frame)
+            )
+            return None
+        if frame[5] not in {0x84, 0x03} or frame[6] != 0x02:
+            _LOGGER.debug("Rejected F072 packet: invalid response marker or type")
             return None
 
         inner_sequence = None
-        data_area = frame[8:-2]
+        data_area = frame[7:-2]
         metadata: dict[str, int | bytes | str] = outer_metadata(outer)
         metadata.update(
             {
                 "response_inner_length": len(frame),
                 "data_length": len(data_area),
-                "response_marker": frame[6],
+                "response_marker": frame[5],
             }
         )
         if self.family is ProtocolFamily.F072_G30 and self._is_g30_state(data_area):
@@ -171,6 +183,9 @@ class F072Codec(DeviceCodec):
                 inner_sequence=inner_sequence,
                 raw_metadata=metadata,
             )
+        _LOGGER.debug(
+            "Rejected F072 packet: unsupported data length, data_len=%d", len(data_area)
+        )
         return None
 
     def _encode_percentage(self, context: CommandContext, percentage: int) -> bytes:

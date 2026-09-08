@@ -27,7 +27,7 @@ company、wire type、两字节 auth 和路由后的内层负载。长度字段�
 
 | wire type | 设备族 | 内层协议 |
 |---:|---|---|
-| 1 | M25 | FA/E5 短帧 |
+| 1 | M25 | FA/F5 短帧 |
 | 2 | X83/X83C/X83C Plus | A5A0 短帧和加和校验 |
 | 3 | X50/X50S/X60/X70 | F072 长帧和 CRC-16/GENIBUS |
 | 4 | G30/G45 | F072 长帧、连续风量和 CRC-16/GENIBUS |
