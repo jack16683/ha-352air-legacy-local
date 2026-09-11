@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Codec for the M25 detector's restricted FA/E5 local family."""
+"""Codec for the M25 detector's restricted FA/F5 local family."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ class M25Codec(DeviceCodec):
         return build_outer_frame(context, payload)
 
     def decode(self, datagram: bytes, source: tuple[str, int]) -> DecodedPacket | None:
-        """Classify documented E5 forms without inventing undocumented sensors."""
+        """Classify documented F5 forms without inventing undocumented sensors."""
 
         outer = parse_outer_frame(datagram)
         peer = valid_source(source)
