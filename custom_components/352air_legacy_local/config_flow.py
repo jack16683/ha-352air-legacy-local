@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -36,6 +37,8 @@ from .schedule import (
     async_clear_local_schedules,
     schedule_cleanup_supported,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _model_schema(
@@ -109,6 +112,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             normalized_mac = normalize_mac(mac)
             result = await async_discover_device(str(host), normalized_mac)
         except (DiscoveryError, ValueError):
+            _LOGGER.debug("DHCP discovery failed; see discovery diagnostics")
             return self.async_abort(reason="cannot_connect")
 
         await self.async_set_unique_id(result.mac)
@@ -263,9 +267,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             result = await async_discover_device(host, mac, MODEL_WIRE_TYPES[model])
         except DiscoveryTimeoutError:
+            _LOGGER.debug("Manual discovery timed out; see discovery diagnostics")
             errors["base"] = "cannot_connect"
             return None
         except DiscoveryError:
+            _LOGGER.debug("Manual discovery failed; see discovery diagnostics")
             errors["base"] = "cannot_connect"
             return None
 

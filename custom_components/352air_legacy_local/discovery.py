@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
+from collections import Counter
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -20,9 +23,15 @@ from .const import (
     mac_to_bytes,
     normalize_mac,
 )
-from .protocols.base import f072_response_crc_is_valid, parse_outer_frame
+from .protocols.base import (
+    f072_response_crc_is_valid,
+    ignore_rejection,
+    parse_outer_frame,
+)
 from .protocols.discovery import decode_discovery_reply, encode_discovery_probe
 from .udp import async_acquire_udp_endpoint, async_release_udp_endpoint
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,14 +68,18 @@ def _decode_reply(
     source: tuple[str, int],
     expected_mac: bytes,
     sequences: set[int],
+    *,
+    on_reject: Callable[[str], None] = ignore_rejection,
 ) -> DiscoveryResult | None:
     """Validate the small discovery subset needed to learn a header identity."""
-    decoded = decode_discovery_reply(datagram, source)
-    if (
-        decoded is None
-        or decoded.identity.mac != expected_mac
-        or (sequences and decoded.sequence not in sequences)
-    ):
+    decoded = decode_discovery_reply(datagram, source, on_reject=on_reject)
+    if decoded is None:
+        return None
+    if decoded.identity.mac != expected_mac:
+        on_reject("target_mac_mismatch")
+        return None
+    if sequences and decoded.sequence not in sequences:
+        on_reject("sequence_mismatch")
         return None
 
     return DiscoveryResult(
@@ -84,17 +97,24 @@ def _decode_passive_status(
     expected_host: str,
     expected_mac: bytes,
     wire_types: set[int],
+    *,
+    on_reject: Callable[[str], None] = ignore_rejection,
 ) -> DiscoveryResult | None:
     """Learn identity from a strictly validated, non-mutating state broadcast."""
     if source != (expected_host, UDP_PORT):
+        on_reject("source_mismatch")
         return None
-    outer = parse_outer_frame(datagram)
-    if (
-        outer is None
-        or outer.operation != 0x04
-        or outer.identity.mac != expected_mac
-        or outer.identity.wire_type not in wire_types
-    ):
+    outer = parse_outer_frame(datagram, on_reject=on_reject)
+    if outer is None:
+        return None
+    if outer.operation != 0x04:
+        on_reject("state_operation")
+        return None
+    if outer.identity.mac != expected_mac:
+        on_reject("target_mac_mismatch")
+        return None
+    if outer.identity.wire_type not in wire_types:
+        on_reject("state_wire_type")
         return None
 
     payload = outer.payload
@@ -120,9 +140,12 @@ def _decode_passive_status(
             and frame[:2] == b"\xf0\x72"
             and frame[6] in {0x84, 0x03}
             and frame[7] == 0x02
-            and f072_response_crc_is_valid(frame)
         )
+        if valid_state and not f072_response_crc_is_valid(frame):
+            on_reject("state_crc")
+            return None
     if not valid_state:
+        on_reject("state_payload_layout")
         return None
 
     return DiscoveryResult(
@@ -148,24 +171,69 @@ class _ReadOnlyDiscoveryProtocol:
         self._expected_mac = expected_mac
         self._wire_types = wire_types
         self._sequences = sequences
+        self.received = 0
+        self.target_received = 0
+        self.probes = 0
+        self.phase = "active"
+        self.accepted = "none"
+        self.discovery_rejections: Counter[str] = Counter()
+        self.state_rejections: Counter[str] = Counter()
         self.result: DiscoveryResult | None = None
         self.response_received = asyncio.Event()
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         if self.result is not None:
             return
-        result = _decode_reply(data, addr, self._expected_mac, self._sequences)
+        self.received += 1
+        is_target = addr[0] == self._expected_host
+        if is_target:
+            self.target_received += 1
+        # Shared endpoint traffic from other devices must not obscure the target.
+        result = _decode_reply(
+            data,
+            addr,
+            self._expected_mac,
+            self._sequences,
+            on_reject=self._reject_discovery if is_target else ignore_rejection,
+        )
+        accepted = "discovery_reply"
         if result is None:
+            accepted = "passive_state"
             result = _decode_passive_status(
                 data,
                 addr,
                 self._expected_host,
                 self._expected_mac,
                 self._wire_types,
+                on_reject=self._reject_state if is_target else ignore_rejection,
             )
         if result is not None:
+            self.accepted = accepted
             self.result = result
             self.response_received.set()
+
+    def _reject_discovery(self, reason: str) -> None:
+        self.discovery_rejections[reason] += 1
+
+    def _reject_state(self, reason: str) -> None:
+        self.state_rejections[reason] += 1
+
+    def log_summary(self, outcome: str) -> None:
+        """Log only counts and fixed labels, never device or packet contents."""
+        _LOGGER.debug(
+            "Discovery diagnostics outcome=%s phase=%s probes=%d received=%d "
+            "target_received=%d other_received=%d accepted=%s "
+            "discovery_rejections=%s state_rejections=%s",
+            outcome,
+            self.phase,
+            self.probes,
+            self.received,
+            self.target_received,
+            self.received - self.target_received,
+            self.accepted,
+            dict(self.discovery_rejections),
+            dict(self.state_rejections),
+        )
 
 
 async def async_discover_device(
@@ -199,12 +267,22 @@ async def async_discover_device(
     protocol = _ReadOnlyDiscoveryProtocol(
         str(parsed_host), target_mac, set(selected_wire_types), sequences
     )
+    _LOGGER.debug(
+        "Discovery diagnostics start wire_types=%s "
+        "active_timeout=%s passive_timeout=%s",
+        selected_wire_types,
+        response_timeout,
+        passive_timeout,
+    )
+    outcome = "interrupted"
     endpoint = None
     resend_task: asyncio.Task[None] | None = None
     try:
         try:
             endpoint = await async_acquire_udp_endpoint(protocol.datagram_received)
         except OSError as err:
+            protocol.phase = "bind"
+            outcome = "endpoint_error"
             raise DiscoveryError("Unable to bind local UDP port 11530") from err
 
         def send_probes() -> None:
@@ -215,6 +293,12 @@ async def async_discover_device(
                     encode_discovery_probe(target_mac, wire_type, sequence),
                     (str(parsed_host), UDP_PORT),
                 )
+                protocol.probes += 1
+            _LOGGER.debug(
+                "Discovery diagnostics probes_sent=%d phase=%s",
+                protocol.probes,
+                protocol.phase,
+            )
 
         async def resend_once() -> None:
             await asyncio.sleep(min(0.75, response_timeout / 3))
@@ -230,19 +314,27 @@ async def async_discover_device(
                 protocol.response_received.wait(), timeout=response_timeout
             )
         except TimeoutError:
+            protocol.log_summary("active_timeout")
             if passive_timeout <= 0:
+                outcome = "timeout"
                 raise DiscoveryTimeoutError from None
+            protocol.phase = "passive"
+            _LOGGER.debug("Discovery diagnostics entering passive wait")
             try:
                 await asyncio.wait_for(
                     protocol.response_received.wait(), timeout=passive_timeout
                 )
             except TimeoutError as err:
+                outcome = "timeout"
                 raise DiscoveryTimeoutError from err
 
         if protocol.result is None:
+            outcome = "timeout"
             raise DiscoveryTimeoutError
+        outcome = "success"
         return protocol.result
     finally:
+        protocol.log_summary(outcome)
         if resend_task is not None and not resend_task.done():
             resend_task.cancel()
             with suppress(asyncio.CancelledError):
