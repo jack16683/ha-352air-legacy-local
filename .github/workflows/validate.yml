@@ -16,15 +16,17 @@ jobs:
         with:
           python-version: "3.13"
       - name: Compile Python sources
-        run: python -m compileall -q custom_components tools
+        run: python -m compileall -q custom_components tools tests
       - name: Lint Python sources
         uses: astral-sh/ruff-action@v3
         with:
-          args: check custom_components tools
+          args: check custom_components tools tests
       - name: Check Python formatting
         uses: astral-sh/ruff-action@v3
         with:
-          args: format --check custom_components tools
+          args: format --check custom_components tools tests
+      - name: Test discovery diagnostics
+        run: python -m unittest discover -s tests -v
       - name: Check sensitive files
         run: |
           if find . -type f \( \

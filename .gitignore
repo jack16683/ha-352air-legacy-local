@@ -9,8 +9,9 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Validation stays local and is never published.
-/tests/
+# Private validation stays local. Only this synthetic regression test is public.
+/tests/*
+!/tests/test_discovery.py
 /private_validation/
 
 # Never publish reverse-engineering inputs or private network material.

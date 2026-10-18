@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -75,19 +76,34 @@ def build_outer_frame(
     )
 
 
-def parse_outer_frame(datagram: bytes | bytearray | memoryview) -> OuterFrame | None:
+def ignore_rejection(_reason: str) -> None:
+    """Default no-op for callers that do not collect validation diagnostics."""
+
+
+def parse_outer_frame(
+    datagram: bytes | bytearray | memoryview,
+    *,
+    on_reject: Callable[[str], None] = ignore_rejection,
+) -> OuterFrame | None:
     """Return an envelope only if all declared framing lengths agree exactly."""
 
     if not isinstance(datagram, (bytes, bytearray, memoryview)):
+        on_reject("outer_input_type")
         return None
     data = bytes(datagram)
-    if len(data) < OUTER_HEADER_LENGTH or data[0] != OUTER_MARKER or data[9] != 0x00:
+    if len(data) < OUTER_HEADER_LENGTH:
+        on_reject("outer_too_short")
+        return None
+    if data[0] != OUTER_MARKER or data[9] != 0x00:
+        on_reject("outer_header")
         return None
     encoded_length = data[8]
     if encoded_length < 7:
+        on_reject("outer_declared_length")
         return None
     payload_length = encoded_length - 7
     if len(data) != OUTER_HEADER_LENGTH + payload_length:
+        on_reject("outer_length_mismatch")
         return None
     try:
         identity = HeaderIdentity(
@@ -97,6 +113,7 @@ def parse_outer_frame(datagram: bytes | bytearray | memoryview) -> OuterFrame | 
             auth=int.from_bytes(data[14:16], "big"),
         )
     except (TypeError, ValueError):
+        on_reject("outer_identity")
         return None
     return OuterFrame(
         identity=identity,
