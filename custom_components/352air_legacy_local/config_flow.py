@@ -33,6 +33,7 @@ from .discovery import (
     DiscoveryResult,
     DiscoveryTimeoutError,
     async_discover_device,
+    async_discover_devices,
 )
 from .protocols.discovery import DISCOVERY_COMPANY
 from .schedule import (
@@ -42,6 +43,7 @@ from .schedule import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_CONF_DEVICE = "device"
 
 
 def _model_schema(
@@ -111,8 +113,69 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     _pending_discovery: DiscoveryResult | None = None
     _pending_model: str | None = None
     _pending_reconfigure_entry: config_entries.ConfigEntry[Any] | None = None
+    _discovered_devices: dict[str, DiscoveryResult] | None = None
 
     async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Offer explicit automatic discovery and full manual setup paths."""
+        if user_input is not None:
+            # Accept a submitted manual form from an already-open older flow.
+            return await self.async_step_manual(user_input)
+        return self.async_show_menu(step_id="user", menu_options=["auto", "manual"])
+
+    async def async_step_auto(
+        self, _user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Use a verified DHCP candidate or search the local network read-only."""
+        if self._pending_discovery is not None:
+            return await self.async_step_confirm_model()
+        try:
+            discovered = await async_discover_devices()
+        except DiscoveryError:
+            _LOGGER.debug("Automatic discovery failed; see discovery diagnostics")
+            discovered = ()
+        configured = {entry.unique_id for entry in self._async_current_entries()}
+        self._discovered_devices = {
+            result.mac: result for result in discovered if result.mac not in configured
+        }
+        if not self._discovered_devices:
+            return await self.async_step_no_devices()
+        return await self.async_step_select_device()
+
+    async def async_step_no_devices(
+        self, _user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Let users retry discovery or switch to the complete manual form."""
+        return self.async_show_menu(
+            step_id="no_devices", menu_options=["auto", "manual"]
+        )
+
+    async def async_step_select_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select one of the independently validated local device identities."""
+        discovered = self._discovered_devices or {}
+        if user_input is not None:
+            selected = str(user_input.get(_CONF_DEVICE, ""))
+            if (result := discovered.get(selected)) is not None:
+                await self.async_set_unique_id(result.mac)
+                self._abort_if_unique_id_configured(
+                    updates=self._entry_data(result, None), reload_on_update=True
+                )
+                self._pending_discovery = result
+                return await self.async_step_confirm_model()
+        options = {
+            result.mac: f"352 ({result.host}, {result.mac})"
+            for result in discovered.values()
+        }
+        return self.async_show_form(
+            step_id="select_device",
+            data_schema=vol.Schema({vol.Required(_CONF_DEVICE): vol.In(options)}),
+            errors={_CONF_DEVICE: "invalid_device"} if user_input else {},
+        )
+
+    async def async_step_manual(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a manually supplied IPv4 address, MAC address, and model."""
@@ -129,8 +192,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self._async_continue_after_identity(result, model)
 
         return self.async_show_form(
-            step_id="user",
-            data_schema=_full_schema(user_input),
+            step_id="manual",
+            data_schema=_full_schema(
+                user_input
+                or (
+                    {
+                        CONF_HOST: self._pending_discovery.host,
+                        CONF_MAC: self._pending_discovery.mac,
+                    }
+                    if self._pending_discovery
+                    else None
+                )
+            ),
             errors=errors,
         )
 
@@ -156,7 +229,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             reload_on_update=True,
         )
         self._pending_discovery = result
-        return await self.async_step_confirm_model()
+        return await self.async_step_user()
 
     async def async_step_confirm_model(
         self, user_input: dict[str, Any] | None = None

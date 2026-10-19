@@ -216,6 +216,130 @@ class DecodeTests(unittest.TestCase):
         self.assertIsNotNone(m25.M25Codec().decode(data, PEER))
 
 
+class NetworkDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_collects_and_deduplicates_replies_and_valid_passive_states(self):
+        receiver = discovery._ReadOnlyNetworkDiscoveryProtocol({42})
+        receiver.datagram_received(packet(), PEER)
+        receiver.datagram_received(packet(), PEER)
+        self.assertEqual(len(receiver.results), 1)
+        self.assertEqual(receiver.results[MAC.hex(":")].auth, AUTH)
+        receiver.datagram_received(
+            packet(b"\x02\x5a\xa1" + bytes(30), sequence=999, operation=4), PEER
+        )
+        self.assertEqual(len(receiver.results), 1)
+        self.assertEqual(receiver.received, 3)
+
+    def test_drops_unrelated_invalid_and_unmatched_discovery_packets(self):
+        receiver = discovery._ReadOnlyNetworkDiscoveryProtocol({42})
+        for raw, source in (
+            (b"bad", PEER),
+            (packet(), (HOST, 1234)),
+            (packet(sequence=43), PEER),
+            (packet(mac=b"\xff" * 6), PEER),
+            (packet(wire_type=5), PEER),
+        ):
+            receiver.datagram_received(raw, source)
+        self.assertEqual(receiver.results, {})
+
+    def test_passive_devices_of_every_protocol_family_can_be_collected(self):
+        for wire in (1, 2, 3, 4):
+            with self.subTest(wire=wire):
+                if wire == 1:
+                    payload = b"\x04\xf5\xa1" + bytes(14)
+                elif wire == 2:
+                    payload = b"\x02\x5a\xa1" + bytes(30)
+                else:
+                    frame = bytearray(39 if wire == 3 else 38)
+                    frame[:2] = b"\xf0\x72"
+                    frame[5:7] = b"\x84\x02"
+                    frame[-2:] = base.crc16_genibus(frame[2:-2]).to_bytes(2, "big")
+                    payload = b"\x01" + frame
+                receiver = discovery._ReadOnlyNetworkDiscoveryProtocol({42})
+                receiver.datagram_received(
+                    packet(payload, operation=4, wire_type=wire), PEER
+                )
+                self.assertEqual(receiver.results[MAC.hex(":")].wire_type, wire)
+
+    async def test_broadcast_scan_is_bounded_read_only_and_logs_no_identity(self):
+        endpoint = Mock()
+        acquire = AsyncMock(return_value=endpoint)
+        release = AsyncMock()
+
+        def deliver(raw, target):
+            self.assertEqual(target, ("255.255.255.255", 11530))
+            self.assertEqual(raw[2:8], b"\xff" * 6)
+            self.assertEqual(raw[16:], b"\x23")
+            if raw[13] == 2 and raw[1] == 0x00:
+                acquire.call_args.args[0](
+                    packet(sequence=int.from_bytes(raw[10:12], "big")), PEER
+                )
+
+        endpoint.sendto.side_effect = deliver
+        with (
+            patch.object(discovery, "async_acquire_udp_endpoint", acquire),
+            patch.object(discovery, "async_release_udp_endpoint", release),
+            self.assertLogs(LOGGER, level="DEBUG") as logs,
+        ):
+            result = await discovery.async_discover_devices(response_timeout=0.02)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].auth, AUTH)
+        self.assertEqual(endpoint.sendto.call_count, 16)
+        self.assertEqual(
+            {call.args[0][1] for call in endpoint.sendto.call_args_list}, {0x00, 0x04}
+        )
+        release.assert_awaited_once_with(endpoint, acquire.call_args.args[0])
+        message = "\n".join(logs.output)
+        self.assertIn("devices=1", message)
+        for private in (HOST, MAC.hex(":"), str(AUTH), packet().hex()):
+            self.assertNotIn(private, message)
+
+    async def test_no_reply_and_send_failure_return_empty_and_release_endpoint(self):
+        for blocked in (False, True):
+            with self.subTest(blocked=blocked):
+                endpoint = Mock()
+                if blocked:
+                    endpoint.sendto.side_effect = OSError("private routing details")
+                acquire = AsyncMock(return_value=endpoint)
+                release = AsyncMock()
+                with (
+                    patch.object(discovery, "async_acquire_udp_endpoint", acquire),
+                    patch.object(discovery, "async_release_udp_endpoint", release),
+                    self.assertLogs(LOGGER, level="DEBUG") as logs,
+                ):
+                    result = await discovery.async_discover_devices(
+                        response_timeout=0.02
+                    )
+                self.assertEqual(result, ())
+                release.assert_awaited_once()
+                self.assertNotIn("private routing details", "\n".join(logs.output))
+
+    async def test_bind_failure_and_cancel_release_resources(self):
+        with (
+            patch.object(
+                discovery, "async_acquire_udp_endpoint", AsyncMock(side_effect=OSError)
+            ),
+            self.assertRaises(discovery.DiscoveryError),
+        ):
+            await discovery.async_discover_devices(response_timeout=0.02)
+        endpoint = Mock()
+        with (
+            patch.object(
+                discovery,
+                "async_acquire_udp_endpoint",
+                AsyncMock(return_value=endpoint),
+            ),
+            patch.object(
+                discovery, "async_release_udp_endpoint", AsyncMock()
+            ) as release,
+        ):
+            task = asyncio.create_task(discovery.async_discover_devices())
+            await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        release.assert_awaited_once()
+
+
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def run_probe(self, *, reply=None, passive=0, bind_error=False):
         endpoint = Mock()

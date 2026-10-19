@@ -15,6 +15,7 @@ from collections import Counter
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from time import monotonic_ns
 
 from .const import (
     DISCOVERY_PASSIVE_TIMEOUT_SECONDS,
@@ -250,6 +251,111 @@ class _ReadOnlyDiscoveryProtocol:
             self.send_errors,
             dict(self.discovery_rejections),
             dict(self.state_rejections),
+        )
+
+
+class _ReadOnlyNetworkDiscoveryProtocol:
+    """Collect validated discovery replies and state broadcasts from the LAN."""
+
+    def __init__(self, sequences: set[int]) -> None:
+        self.sequences = sequences
+        self.results: dict[str, DiscoveryResult] = {}
+        self.received = 0
+        self.probes = 0
+        self.send_errors = 0
+
+    def datagram_received(self, data: bytes, source: tuple[str, int]) -> None:
+        self.received += 1
+        outer = parse_outer_frame(data)
+        if (
+            outer is None
+            or source[1] != UDP_PORT
+            or outer.identity.wire_type not in {1, 2, 3, 4}
+            or outer.identity.mac in {bytes(6), b"\xff" * 6}
+        ):
+            return
+        decoded = decode_discovery_reply(data, source)
+        if decoded is not None and decoded.sequence in self.sequences:
+            result = DiscoveryResult(
+                decoded.host,
+                normalize_mac(decoded.identity.mac),
+                decoded.identity.company,
+                decoded.identity.wire_type,
+                decoded.identity.auth,
+            )
+        else:
+            result = _decode_passive_status(
+                data, source, source[0], outer.identity.mac, {1, 2, 3, 4}
+            )
+        if result is not None and (
+            result.mac in self.results or len(self.results) < 64
+        ):
+            self.results[result.mac] = result
+
+
+async def async_discover_devices(
+    *, response_timeout: float = 8.0
+) -> tuple[DiscoveryResult, ...]:
+    """Search the LAN using bounded read-only broadcasts on shared UDP 11530."""
+    if response_timeout <= 0:
+        raise DiscoveryError("Discovery timeout must be positive")
+    first_sequence = monotonic_ns() & 0xFFFF
+    sequences = {(first_sequence + offset) & 0xFFFF for offset in range(4)}
+    protocol = _ReadOnlyNetworkDiscoveryProtocol(sequences)
+    endpoint = None
+    resend_task: asyncio.Task[None] | None = None
+    outcome = "interrupted"
+    _LOGGER.debug("Network discovery start response_timeout=%s", response_timeout)
+    try:
+        try:
+            endpoint = await async_acquire_udp_endpoint(protocol.datagram_received)
+        except OSError as err:
+            outcome = "endpoint_error"
+            raise DiscoveryError("Unable to bind local UDP port 11530") from err
+
+        def send_probes() -> None:
+            assert endpoint is not None
+            for offset, wire_type in enumerate((1, 2, 3, 4)):
+                for operation in (0x00, 0x04):
+                    packet = encode_discovery_probe(
+                        b"\xff" * 6,
+                        wire_type,
+                        (first_sequence + offset) & 0xFFFF,
+                        operation=operation,
+                    )
+                    try:
+                        endpoint.sendto(packet, ("255.255.255.255", UDP_PORT))
+                    except OSError:
+                        protocol.send_errors += 1
+                    else:
+                        protocol.probes += 1
+
+        async def resend_once() -> None:
+            await asyncio.sleep(min(0.75, response_timeout / 3))
+            send_probes()
+
+        send_probes()
+        resend_task = asyncio.create_task(
+            resend_once(), name="352air read-only network discovery retry"
+        )
+        await asyncio.sleep(response_timeout)
+        outcome = "success" if protocol.results else "no_devices"
+        return tuple(protocol.results[key] for key in sorted(protocol.results))
+    finally:
+        if resend_task is not None and not resend_task.done():
+            resend_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await resend_task
+        if endpoint is not None:
+            await async_release_udp_endpoint(endpoint, protocol.datagram_received)
+        _LOGGER.debug(
+            "Network discovery outcome=%s probes=%d received=%d devices=%d "
+            "send_errors=%d",
+            outcome,
+            protocol.probes,
+            protocol.received,
+            len(protocol.results),
+            protocol.send_errors,
         )
 
 

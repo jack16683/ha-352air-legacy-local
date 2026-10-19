@@ -35,6 +35,12 @@ class _Flow:
     def async_show_form(self, **kwargs):
         return {"type": "form", **kwargs}
 
+    def async_show_menu(self, **kwargs):
+        return {"type": "menu", **kwargs}
+
+    def _async_current_entries(self):
+        return []
+
     def async_create_entry(self, **kwargs):
         return {"type": "create_entry", **kwargs}
 
@@ -118,6 +124,100 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_entry_menu_offers_auto_and_manual_without_network_io(self):
+        config = flow.ConfigFlow()
+        with (
+            patch.object(flow, "async_discover_device", AsyncMock()) as target,
+            patch.object(flow, "async_discover_devices", AsyncMock()) as network,
+        ):
+            result = await config.async_step_user()
+        self.assertEqual(result["type"], "menu")
+        self.assertEqual(result["menu_options"], ["auto", "manual"])
+        target.assert_not_awaited()
+        network.assert_not_awaited()
+
+    async def test_manual_route_offers_every_model(self):
+        config = flow.ConfigFlow()
+        form = await config.async_step_manual()
+        self.assertEqual(form["step_id"], "manual")
+        for model in flow.MODEL_OPTIONS:
+            with self.subTest(model=model):
+                self.assertEqual(
+                    form["data_schema"]({**INPUT, "model": model})["model"], model
+                )
+
+    async def test_dhcp_entry_also_offers_both_setup_methods(self):
+        config = flow.ConfigFlow()
+        info = SimpleNamespace(ip=INPUT["host"], macaddress=INPUT["mac"])
+        with patch.object(
+            flow, "async_discover_device", AsyncMock(return_value=RESULT)
+        ):
+            result = await config.async_step_dhcp(info)
+        self.assertEqual(result["type"], "menu")
+        self.assertEqual(result["menu_options"], ["auto", "manual"])
+        manual = await config.async_step_manual()
+        defaults = manual["data_schema"]({"model": "X50S"})
+        self.assertEqual(defaults["host"], INPUT["host"])
+        self.assertEqual(defaults["mac"], INPUT["mac"])
+        self.assertEqual(defaults["auth"], "")
+        self.assertEqual(defaults["company"], "")
+
+    async def test_auto_uses_existing_dhcp_candidate_then_confirms_family(self):
+        config = flow.ConfigFlow()
+        config._pending_discovery = RESULT
+        with patch.object(flow, "async_discover_devices", AsyncMock()) as network:
+            result = await config.async_step_auto()
+        network.assert_not_awaited()
+        self.assertEqual(result["step_id"], "confirm_model")
+        schema = result["data_schema"]
+        for model in ("X83", "X83C", "X83C_PLUS"):
+            self.assertEqual(schema({"model": model}), {"model": model})
+        with self.assertRaises(vol.Invalid):
+            schema({"model": "X50"})
+
+    async def test_auto_scans_selects_device_and_saves_confirmed_model(self):
+        config = flow.ConfigFlow()
+        with patch.object(
+            flow, "async_discover_devices", AsyncMock(return_value=(RESULT,))
+        ):
+            result = await config.async_step_auto()
+        self.assertEqual(result["step_id"], "select_device")
+        self.assertEqual(
+            result["data_schema"]({"device": RESULT.mac}), {"device": RESULT.mac}
+        )
+        confirm = await config.async_step_select_device({"device": RESULT.mac})
+        self.assertEqual(confirm["step_id"], "confirm_model")
+        self.assertEqual(config.unique_id, RESULT.mac)
+        await config.async_step_confirm_model({"model": "X83C_PLUS"})
+        entry = await config.async_step_schedule_cleanup(
+            {"clear_local_schedules": False}
+        )
+        self.assertEqual(entry["data"]["model"], "X83C_PLUS")
+        self.assertEqual(entry["data"]["auth"], RESULT.auth)
+
+    async def test_auto_empty_failed_or_configured_results_offer_manual(self):
+        for mode in ("empty", "failed", "configured"):
+            with self.subTest(mode=mode):
+                config = flow.ConfigFlow()
+                config._async_current_entries = lambda: [
+                    SimpleNamespace(unique_id=RESULT.mac)
+                ]
+                scan = AsyncMock(return_value=() if mode == "empty" else (RESULT,))
+                if mode == "failed":
+                    scan.side_effect = flow.DiscoveryError
+                with patch.object(flow, "async_discover_devices", scan):
+                    result = await config.async_step_auto()
+                self.assertEqual(result["type"], "menu")
+                self.assertEqual(result["step_id"], "no_devices")
+                self.assertEqual(result["menu_options"], ["auto", "manual"])
+
+    async def test_stale_device_selection_does_not_create_entry(self):
+        config = flow.ConfigFlow()
+        config._discovered_devices = {RESULT.mac: RESULT}
+        result = await config.async_step_select_device({"device": "unknown"})
+        self.assertEqual(result["errors"], {"device": "invalid_device"})
+        self.assertIsNone(config._pending_discovery)
+
     async def test_imported_credentials_used_for_probe_and_reply_saved(self):
         config = flow.ConfigFlow()
         discover = AsyncMock(return_value=RESULT)

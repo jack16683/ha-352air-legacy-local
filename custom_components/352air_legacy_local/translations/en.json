@@ -3,19 +3,16 @@
   "config": {
     "step": {
       "user": {
-        "title": "Add a legacy 352 air device",
-        "description": "Enter the current LAN address, MAC address, and exact retail model. Identity verification is read-only; no device setting changes before the optional schedule step. Usually leave authentication and company codes blank. If obtained from your own device, enter hex values (such as 04 03 and F1). A validated device reply is still required.",
-        "data": {
-          "host": "IP address",
-          "mac": "MAC address",
-          "model": "Model",
-          "auth": "Authentication code (optional, hexadecimal)",
-          "company": "Company code (optional, hexadecimal)"
+        "title": "Add a 352 air device",
+        "description": "Discover devices on your local network, or enter their address manually and choose from all supported models.",
+        "menu_options": {
+          "auto": "Discover devices automatically",
+          "manual": "Manual setup (all models)"
         }
       },
       "confirm_model": {
         "title": "Confirm the device model",
-        "description": "The local protocol identifies a device family, but cannot distinguish every retail model in that family.",
+        "description": "This device replied with a protocol family shared by the models below. Confirm the retail model from its label. This is not the full support list; manual setup offers all supported models.",
         "data": {
           "model": "Model"
         }
@@ -37,6 +34,32 @@
           "auth": "Authentication code (optional, hexadecimal)",
           "company": "Company code (optional, hexadecimal)"
         }
+      },
+      "manual": {
+        "title": "Add a device manually",
+        "description": "Enter the current LAN address, MAC address, and exact retail model. Identity verification is read-only; no device setting changes before the optional schedule step. Usually leave authentication and company codes blank. If obtained from your own device, enter hex values (such as 04 03 and F1). A validated device reply is still required.",
+        "data": {
+          "host": "IP address",
+          "mac": "MAC address",
+          "model": "Model",
+          "auth": "Authentication code (optional, hexadecimal)",
+          "company": "Company code (optional, hexadecimal)"
+        }
+      },
+      "no_devices": {
+        "title": "No new devices found",
+        "description": "Check that the device is online and reachable on the same local network, then retry. You can also use manual setup to choose from all supported models.",
+        "menu_options": {
+          "auto": "Discover devices automatically",
+          "manual": "Manual setup (all models)"
+        }
+      },
+      "select_device": {
+        "title": "Select a discovered device",
+        "description": "Choose the device to add. You will then confirm its retail model because several models can share one local protocol family.",
+        "data": {
+          "device": "Device"
+        }
       }
     },
     "error": {
@@ -47,7 +70,8 @@
       "model_mismatch": "The selected model does not match the discovered protocol family",
       "schedule_cleanup_failed": "The schedules could not be cleared and verified; retry, or turn the option off to keep them",
       "invalid_auth": "Enter a hexadecimal authentication code from 0000 to FFFF, or leave blank",
-      "invalid_company": "Enter a hexadecimal company code from 00 to FF, or leave blank"
+      "invalid_company": "Enter a hexadecimal company code from 00 to FF, or leave blank",
+      "invalid_device": "Select one of the discovered devices"
     },
     "abort": {
       "already_configured": "This device is already configured",

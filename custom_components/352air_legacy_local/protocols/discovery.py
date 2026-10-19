@@ -27,16 +27,18 @@ def encode_discovery_probe(
     *,
     company: int = DISCOVERY_COMPANY,
     auth: int = DISCOVERY_AUTH,
+    operation: int = DISCOVERY_OUTER_OPERATION,
 ) -> bytes:
     """Build the documented non-mutating directed discovery probe.
 
     Unknown devices use the app discovery credential. Known devices may use
     their own company/auth, including when this frame is sent by broadcast.
+    The app's identity-free builder uses flags 00; directed probes use 04.
     """
 
     identity = HeaderIdentity(mac=mac, company=company, wire_type=wire_type, auth=auth)
     context = CommandContext(identity=identity, outer_sequence=sequence)
-    return build_outer_frame(context, b"\x23", operation=DISCOVERY_OUTER_OPERATION)
+    return build_outer_frame(context, b"\x23", operation=operation)
 
 
 def decode_discovery_reply(
