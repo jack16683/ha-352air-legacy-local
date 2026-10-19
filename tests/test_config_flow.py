@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import sys
 import unittest
@@ -26,6 +27,10 @@ class _Flow:
     def __init_subclass__(cls, **_kwargs):
         pass
 
+    def __init__(self):
+        self.hass = SimpleNamespace(async_create_task=asyncio.create_task)
+        self._progress_task = None
+
     async def async_set_unique_id(self, unique_id):
         self.unique_id = unique_id
 
@@ -37,6 +42,18 @@ class _Flow:
 
     def async_show_menu(self, **kwargs):
         return {"type": "menu", **kwargs}
+
+    def async_show_progress(self, **kwargs):
+        self._progress_task = kwargs["progress_task"]
+        return {"type": "progress", **kwargs}
+
+    def async_show_progress_done(self, **kwargs):
+        return {"type": "progress_done", **kwargs}
+
+    def async_cancel_progress_task(self):
+        if self._progress_task is not None:
+            self._progress_task.cancel()
+            self._progress_task = None
 
     def _async_current_entries(self):
         return []
@@ -124,6 +141,14 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def _finish_network_scan(self, config):
+        progress = await config.async_step_auto()
+        self.assertEqual(progress["type"], "progress")
+        await asyncio.gather(progress["progress_task"], return_exceptions=True)
+        done = await config.async_step_auto()
+        self.assertEqual(done["type"], "progress_done")
+        return await getattr(config, f"async_step_{done['next_step_id']}")()
+
     async def test_entry_menu_offers_auto_and_manual_without_network_io(self):
         config = flow.ConfigFlow()
         with (
@@ -180,7 +205,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             flow, "async_discover_devices", AsyncMock(return_value=(RESULT,))
         ):
-            result = await config.async_step_auto()
+            result = await self._finish_network_scan(config)
         self.assertEqual(result["step_id"], "select_device")
         self.assertEqual(
             result["data_schema"]({"device": RESULT.mac}), {"device": RESULT.mac}
@@ -206,10 +231,55 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
                 if mode == "failed":
                     scan.side_effect = flow.DiscoveryError
                 with patch.object(flow, "async_discover_devices", scan):
-                    result = await config.async_step_auto()
+                    result = await self._finish_network_scan(config)
                 self.assertEqual(result["type"], "menu")
                 self.assertEqual(result["step_id"], "no_devices")
                 self.assertEqual(result["menu_options"], ["auto", "manual"])
+
+    async def test_scan_progress_reuses_one_task_without_blocking_the_form(self):
+        config = flow.ConfigFlow()
+        completed = asyncio.Event()
+
+        async def scan():
+            await completed.wait()
+            return (RESULT,)
+
+        with patch.object(
+            flow, "async_discover_devices", AsyncMock(side_effect=scan)
+        ) as discover:
+            first = await config.async_step_auto()
+            second = await config.async_step_auto()
+            self.assertEqual(first["type"], "progress")
+            self.assertEqual(first["description_placeholders"], {"seconds": "45"})
+            self.assertIs(first["progress_task"], second["progress_task"])
+            self.assertEqual(discover.call_count, 1)
+            completed.set()
+            await first["progress_task"]
+            done = await config.async_step_auto()
+        self.assertEqual(
+            done, {"type": "progress_done", "next_step_id": "select_device"}
+        )
+        self.assertIsNone(config._discovery_task)
+
+    async def test_closing_scan_progress_cancels_the_registered_task(self):
+        config = flow.ConfigFlow()
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def scan():
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        with patch.object(flow, "async_discover_devices", AsyncMock(side_effect=scan)):
+            progress = await config.async_step_auto()
+            await started.wait()
+            config.async_cancel_progress_task()
+            with self.assertRaises(asyncio.CancelledError):
+                await progress["progress_task"]
+        self.assertTrue(cancelled.is_set())
 
     async def test_stale_device_selection_does_not_create_entry(self):
         config = flow.ConfigFlow()

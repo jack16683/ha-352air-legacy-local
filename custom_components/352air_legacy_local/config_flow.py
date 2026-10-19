@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 from collections.abc import Mapping
@@ -25,6 +26,7 @@ from .const import (
     MODEL_OPTIONS,
     MODEL_WIRE_TYPES,
     MODEL_X83C,
+    NETWORK_DISCOVERY_TIMEOUT_SECONDS,
     compatible_models,
     normalize_mac,
 )
@@ -114,6 +116,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     _pending_model: str | None = None
     _pending_reconfigure_entry: config_entries.ConfigEntry[Any] | None = None
     _discovered_devices: dict[str, DiscoveryResult] | None = None
+    _discovery_task: asyncio.Task[tuple[DiscoveryResult, ...]] | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -130,8 +133,24 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Use a verified DHCP candidate or search the local network read-only."""
         if self._pending_discovery is not None:
             return await self.async_step_confirm_model()
+
+        if self._discovery_task is None:
+            self._discovery_task = self.hass.async_create_task(
+                async_discover_devices(), name="352air network setup discovery"
+            )
+        if not self._discovery_task.done():
+            return self.async_show_progress(
+                step_id="auto",
+                progress_action="searching",
+                progress_task=self._discovery_task,
+                description_placeholders={
+                    "seconds": str(int(NETWORK_DISCOVERY_TIMEOUT_SECONDS))
+                },
+            )
+        task = self._discovery_task
+        self._discovery_task = None
         try:
-            discovered = await async_discover_devices()
+            discovered = task.result()
         except DiscoveryError:
             _LOGGER.debug("Automatic discovery failed; see discovery diagnostics")
             discovered = ()
@@ -140,8 +159,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             result.mac: result for result in discovered if result.mac not in configured
         }
         if not self._discovered_devices:
-            return await self.async_step_no_devices()
-        return await self.async_step_select_device()
+            return self.async_show_progress_done(next_step_id="no_devices")
+        return self.async_show_progress_done(next_step_id="select_device")
 
     async def async_step_no_devices(
         self, _user_input: dict[str, Any] | None = None

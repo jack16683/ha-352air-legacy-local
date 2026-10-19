@@ -280,7 +280,9 @@ class NetworkDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             patch.object(discovery, "async_release_udp_endpoint", release),
             self.assertLogs(LOGGER, level="DEBUG") as logs,
         ):
-            result = await discovery.async_discover_devices(response_timeout=0.02)
+            result = await discovery.async_discover_devices(
+                response_timeout=0.02, retry_interval=0.01
+            )
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].auth, AUTH)
         self.assertEqual(endpoint.sendto.call_count, 16)
@@ -312,6 +314,69 @@ class NetworkDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result, ())
                 release.assert_awaited_once()
                 self.assertNotIn("private routing details", "\n".join(logs.output))
+
+    async def test_default_window_catches_a_broadcast_after_thirty_seconds(self):
+        endpoint = Mock()
+        acquire = AsyncMock(return_value=endpoint)
+        release = AsyncMock()
+        real_sleep = asyncio.sleep
+        waits = []
+        scheduled = False
+
+        async def scaled_sleep(delay):
+            waits.append(delay)
+            # Simulate seconds as milliseconds while preserving the default
+            # scan duration and retry interval passed by production code.
+            await real_sleep(delay / 1000)
+
+        def deliver(_raw, _target):
+            nonlocal scheduled
+            if not scheduled:
+                scheduled = True
+                callback = acquire.call_args.args[0]
+                asyncio.get_running_loop().call_later(
+                    0.030,
+                    callback,
+                    packet(b"\x02\x5a\xa1" + bytes(30), operation=4),
+                    PEER,
+                )
+
+        endpoint.sendto.side_effect = deliver
+        with (
+            patch.object(discovery, "async_acquire_udp_endpoint", acquire),
+            patch.object(discovery, "async_release_udp_endpoint", release),
+            patch.object(discovery.asyncio, "sleep", scaled_sleep),
+        ):
+            result = await discovery.async_discover_devices()
+        self.assertEqual(waits[0], 45)
+        self.assertGreaterEqual(waits.count(5), 3)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].mac, MAC.hex(":"))
+        self.assertGreater(endpoint.sendto.call_count, 16)
+        release.assert_awaited_once()
+
+    async def test_retries_continue_after_two_lost_probe_batches(self):
+        endpoint = Mock()
+        acquire = AsyncMock(return_value=endpoint)
+        release = AsyncMock()
+
+        def deliver(raw, _target):
+            if endpoint.sendto.call_count > 16 and raw[13] == 2:
+                acquire.call_args.args[0](
+                    packet(sequence=int.from_bytes(raw[10:12], "big")), PEER
+                )
+
+        endpoint.sendto.side_effect = deliver
+        with (
+            patch.object(discovery, "async_acquire_udp_endpoint", acquire),
+            patch.object(discovery, "async_release_udp_endpoint", release),
+        ):
+            result = await discovery.async_discover_devices(
+                response_timeout=0.045, retry_interval=0.01
+            )
+        self.assertEqual(len(result), 1)
+        self.assertGreater(endpoint.sendto.call_count, 16)
+        release.assert_awaited_once()
 
     async def test_bind_failure_and_cancel_release_resources(self):
         with (

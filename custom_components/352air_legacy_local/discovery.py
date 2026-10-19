@@ -20,6 +20,8 @@ from time import monotonic_ns
 from .const import (
     DISCOVERY_PASSIVE_TIMEOUT_SECONDS,
     DISCOVERY_TIMEOUT_SECONDS,
+    NETWORK_DISCOVERY_RETRY_INTERVAL_SECONDS,
+    NETWORK_DISCOVERY_TIMEOUT_SECONDS,
     UDP_PORT,
     mac_to_bytes,
     normalize_mac,
@@ -294,18 +296,24 @@ class _ReadOnlyNetworkDiscoveryProtocol:
 
 
 async def async_discover_devices(
-    *, response_timeout: float = 8.0
+    *,
+    response_timeout: float = NETWORK_DISCOVERY_TIMEOUT_SECONDS,
+    retry_interval: float = NETWORK_DISCOVERY_RETRY_INTERVAL_SECONDS,
 ) -> tuple[DiscoveryResult, ...]:
     """Search the LAN using bounded read-only broadcasts on shared UDP 11530."""
-    if response_timeout <= 0:
-        raise DiscoveryError("Discovery timeout must be positive")
+    if response_timeout <= 0 or retry_interval <= 0:
+        raise DiscoveryError("Discovery timeout and retry interval must be positive")
     first_sequence = monotonic_ns() & 0xFFFF
     sequences = {(first_sequence + offset) & 0xFFFF for offset in range(4)}
     protocol = _ReadOnlyNetworkDiscoveryProtocol(sequences)
     endpoint = None
     resend_task: asyncio.Task[None] | None = None
     outcome = "interrupted"
-    _LOGGER.debug("Network discovery start response_timeout=%s", response_timeout)
+    _LOGGER.debug(
+        "Network discovery start response_timeout=%s retry_interval=%s",
+        response_timeout,
+        retry_interval,
+    )
     try:
         try:
             endpoint = await async_acquire_udp_endpoint(protocol.datagram_received)
@@ -330,13 +338,18 @@ async def async_discover_devices(
                     else:
                         protocol.probes += 1
 
-        async def resend_once() -> None:
-            await asyncio.sleep(min(0.75, response_timeout / 3))
-            send_probes()
+        deadline = asyncio.get_running_loop().time() + response_timeout
+
+        async def resend_probes() -> None:
+            while True:
+                await asyncio.sleep(retry_interval)
+                if asyncio.get_running_loop().time() >= deadline:
+                    return
+                send_probes()
 
         send_probes()
         resend_task = asyncio.create_task(
-            resend_once(), name="352air read-only network discovery retry"
+            resend_probes(), name="352air read-only network discovery retry"
         )
         await asyncio.sleep(response_timeout)
         outcome = "success" if protocol.results else "no_devices"

@@ -60,6 +60,9 @@
         "data": {
           "device": "Device"
         }
+      },
+      "auto": {
+        "title": "Discover devices automatically"
       }
     },
     "error": {
@@ -79,6 +82,9 @@
       "invalid_discovery": "The discovery information is incomplete",
       "unsupported_device": "The discovered protocol family is not supported",
       "unique_id_mismatch": "The MAC address belongs to a different configured device"
+    },
+    "progress": {
+      "searching": "Searching the local network for about {seconds} seconds. Keep the device online; discovery probes are repeated throughout the search."
     }
   },
   "entity": {
