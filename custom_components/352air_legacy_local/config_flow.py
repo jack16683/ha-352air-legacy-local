@@ -135,8 +135,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_confirm_model()
 
         if self._discovery_task is None:
+            excluded_macs = frozenset(
+                entry.unique_id
+                for entry in self._async_current_entries()
+                if entry.unique_id is not None
+            )
             self._discovery_task = self.hass.async_create_task(
-                async_discover_devices(), name="352air network setup discovery"
+                async_discover_devices(excluded_macs=excluded_macs),
+                name="352air network setup discovery",
             )
         if not self._discovery_task.done():
             return self.async_show_progress(

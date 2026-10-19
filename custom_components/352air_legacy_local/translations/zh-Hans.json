@@ -84,7 +84,7 @@
       "unique_id_mismatch": "该 MAC 地址属于另一个已配置设备"
     },
     "progress": {
-      "searching": "正在搜索局域网中的设备，持续约 {seconds} 秒。请保持设备联网；系统会在搜索期间定期重试。"
+      "searching": "正在搜索局域网中的新设备，最多等待 {seconds} 秒。发现可添加设备后立即显示结果；未发现时会定期重试。"
     }
   },
   "entity": {

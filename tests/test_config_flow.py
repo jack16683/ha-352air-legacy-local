@@ -232,6 +232,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
                     scan.side_effect = flow.DiscoveryError
                 with patch.object(flow, "async_discover_devices", scan):
                     result = await self._finish_network_scan(config)
+                scan.assert_awaited_once_with(excluded_macs=frozenset({RESULT.mac}))
                 self.assertEqual(result["type"], "menu")
                 self.assertEqual(result["step_id"], "no_devices")
                 self.assertEqual(result["menu_options"], ["auto", "manual"])
@@ -240,7 +241,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         config = flow.ConfigFlow()
         completed = asyncio.Event()
 
-        async def scan():
+        async def scan(**_kwargs):
             await completed.wait()
             return (RESULT,)
 
@@ -266,7 +267,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         started = asyncio.Event()
         cancelled = asyncio.Event()
 
-        async def scan():
+        async def scan(**_kwargs):
             started.set()
             try:
                 await asyncio.Event().wait()
@@ -275,7 +276,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(flow, "async_discover_devices", AsyncMock(side_effect=scan)):
             progress = await config.async_step_auto()
-            await started.wait()
+            await asyncio.wait_for(started.wait(), timeout=1)
             config.async_cancel_progress_task()
             with self.assertRaises(asyncio.CancelledError):
                 await progress["progress_task"]

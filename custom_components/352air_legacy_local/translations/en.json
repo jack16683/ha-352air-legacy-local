@@ -84,7 +84,7 @@
       "unique_id_mismatch": "The MAC address belongs to a different configured device"
     },
     "progress": {
-      "searching": "Searching the local network for about {seconds} seconds. Keep the device online; discovery probes are repeated throughout the search."
+      "searching": "Searching for new devices on the local network for up to {seconds} seconds. Results appear as soon as an eligible device is found; otherwise discovery probes continue periodically."
     }
   },
   "entity": {

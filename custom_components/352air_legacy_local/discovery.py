@@ -259,9 +259,13 @@ class _ReadOnlyDiscoveryProtocol:
 class _ReadOnlyNetworkDiscoveryProtocol:
     """Collect validated discovery replies and state broadcasts from the LAN."""
 
-    def __init__(self, sequences: set[int]) -> None:
+    def __init__(
+        self, sequences: set[int], excluded_macs: frozenset[str] = frozenset()
+    ) -> None:
         self.sequences = sequences
+        self.excluded_macs = excluded_macs
         self.results: dict[str, DiscoveryResult] = {}
+        self.response_received = asyncio.Event()
         self.received = 0
         self.probes = 0
         self.send_errors = 0
@@ -289,30 +293,35 @@ class _ReadOnlyNetworkDiscoveryProtocol:
             result = _decode_passive_status(
                 data, source, source[0], outer.identity.mac, {1, 2, 3, 4}
             )
+        if result is not None and result.mac in self.excluded_macs:
+            return
         if result is not None and (
             result.mac in self.results or len(self.results) < 64
         ):
             self.results[result.mac] = result
+            self.response_received.set()
 
 
 async def async_discover_devices(
     *,
     response_timeout: float = NETWORK_DISCOVERY_TIMEOUT_SECONDS,
     retry_interval: float = NETWORK_DISCOVERY_RETRY_INTERVAL_SECONDS,
+    excluded_macs: frozenset[str] = frozenset(),
 ) -> tuple[DiscoveryResult, ...]:
-    """Search the LAN using bounded read-only broadcasts on shared UDP 11530."""
+    """Search read-only until an eligible device replies or the window expires."""
     if response_timeout <= 0 or retry_interval <= 0:
         raise DiscoveryError("Discovery timeout and retry interval must be positive")
     first_sequence = monotonic_ns() & 0xFFFF
     sequences = {(first_sequence + offset) & 0xFFFF for offset in range(4)}
-    protocol = _ReadOnlyNetworkDiscoveryProtocol(sequences)
+    protocol = _ReadOnlyNetworkDiscoveryProtocol(sequences, excluded_macs)
     endpoint = None
     resend_task: asyncio.Task[None] | None = None
     outcome = "interrupted"
     _LOGGER.debug(
-        "Network discovery start response_timeout=%s retry_interval=%s",
+        "Network discovery start response_timeout=%s retry_interval=%s excluded=%d",
         response_timeout,
         retry_interval,
+        len(excluded_macs),
     )
     try:
         try:
@@ -325,6 +334,8 @@ async def async_discover_devices(
             assert endpoint is not None
             for offset, wire_type in enumerate((1, 2, 3, 4)):
                 for operation in (0x00, 0x04):
+                    if protocol.response_received.is_set():
+                        return
                     packet = encode_discovery_probe(
                         b"\xff" * 6,
                         wire_type,
@@ -343,7 +354,10 @@ async def async_discover_devices(
         async def resend_probes() -> None:
             while True:
                 await asyncio.sleep(retry_interval)
-                if asyncio.get_running_loop().time() >= deadline:
+                if (
+                    protocol.response_received.is_set()
+                    or asyncio.get_running_loop().time() >= deadline
+                ):
                     return
                 send_probes()
 
@@ -351,7 +365,10 @@ async def async_discover_devices(
         resend_task = asyncio.create_task(
             resend_probes(), name="352air read-only network discovery retry"
         )
-        await asyncio.sleep(response_timeout)
+        with suppress(TimeoutError):
+            await asyncio.wait_for(
+                protocol.response_received.wait(), timeout=response_timeout
+            )
         outcome = "success" if protocol.results else "no_devices"
         return tuple(protocol.results[key] for key in sorted(protocol.results))
     finally:
