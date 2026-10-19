@@ -65,7 +65,9 @@ class M25Codec(DeviceCodec):
         if outer is None or peer is None or outer.identity.wire_type != 1:
             return None
         payload = outer.payload
-        if len(payload) < 3 or payload[:2] != b"\x03\xf5":
+        # The APK dispatches incoming detector data on route 04. Retain the
+        # historical route 03 layout while keeping F5 and all lengths strict.
+        if len(payload) < 3 or payload[0] not in {0x03, 0x04} or payload[1] != 0xF5:
             return None
         response_form = payload[2]
         metadata = outer_metadata(outer)

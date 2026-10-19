@@ -4,11 +4,13 @@
     "step": {
       "user": {
         "title": "Add a legacy 352 air device",
-        "description": "Enter the current LAN address, MAC address, and exact retail model. Identity verification is read-only; no device setting changes before the optional schedule step.",
+        "description": "Enter the current LAN address, MAC address, and exact retail model. Identity verification is read-only; no device setting changes before the optional schedule step. Usually leave authentication and company codes blank. If obtained from your own device, enter hex values (such as 04 03 and F1). A validated device reply is still required.",
         "data": {
           "host": "IP address",
           "mac": "MAC address",
-          "model": "Model"
+          "model": "Model",
+          "auth": "Authentication code (optional, hexadecimal)",
+          "company": "Company code (optional, hexadecimal)"
         }
       },
       "confirm_model": {
@@ -27,11 +29,13 @@
       },
       "reconfigure": {
         "title": "Reconfigure device",
-        "description": "Update the LAN address or model and verify the device with a read-only probe. The next step can optionally clear device-local schedules.",
+        "description": "Update the LAN address or model and verify the device with a read-only probe. The next step can optionally clear device-local schedules. Usually leave authentication and company codes blank. If obtained from your own device, enter hex values (such as 04 03 and F1). A validated device reply is still required.",
         "data": {
           "host": "IP address",
           "mac": "MAC address",
-          "model": "Model"
+          "model": "Model",
+          "auth": "Authentication code (optional, hexadecimal)",
+          "company": "Company code (optional, hexadecimal)"
         }
       }
     },
@@ -41,7 +45,9 @@
       "invalid_mac": "Enter a valid MAC address",
       "invalid_model": "Select a supported model",
       "model_mismatch": "The selected model does not match the discovered protocol family",
-      "schedule_cleanup_failed": "The schedules could not be cleared and verified; retry, or turn the option off to keep them"
+      "schedule_cleanup_failed": "The schedules could not be cleared and verified; retry, or turn the option off to keep them",
+      "invalid_auth": "Enter a hexadecimal authentication code from 0000 to FFFF, or leave blank",
+      "invalid_company": "Enter a hexadecimal company code from 00 to FF, or leave blank"
     },
     "abort": {
       "already_configured": "This device is already configured",

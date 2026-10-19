@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -14,7 +15,9 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .const import (
+    CONF_AUTH,
     CONF_CLEAR_LOCAL_SCHEDULES,
+    CONF_COMPANY,
     CONF_HOST,
     CONF_MAC,
     CONF_MODEL,
@@ -31,11 +34,14 @@ from .discovery import (
     DiscoveryTimeoutError,
     async_discover_device,
 )
+from .protocols.discovery import DISCOVERY_COMPANY
 from .schedule import (
     ScheduleCleanupError,
     async_clear_local_schedules,
     schedule_cleanup_supported,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _model_schema(
@@ -60,8 +66,40 @@ def _full_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
                 CONF_MODEL,
                 default=defaults.get(CONF_MODEL, MODEL_X83C),
             ): vol.In(MODEL_OPTIONS),
+            vol.Optional(
+                CONF_AUTH, default=_header_default(defaults, CONF_AUTH, 4)
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(
+                CONF_COMPANY, default=_header_default(defaults, CONF_COMPANY, 2)
+            ): str,
         }
     )
+
+
+def _header_default(defaults: Mapping[str, Any], key: str, width: int) -> str:
+    """Render stored integer credentials as hex when reconfiguring."""
+    value = defaults.get(key, "")
+    return f"{value:0{width}X}" if isinstance(value, int) else str(value)
+
+
+def _parse_header_hex(value: Any, width: int) -> int | None:
+    """Accept an optional hex byte/word without ambiguous decimal conversion."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        if 0 <= value < 16**width:
+            return value
+        raise ValueError("Header field is out of range")
+    if not isinstance(value, str):
+        raise ValueError("Header field must be hexadecimal")
+    compact = value.strip().lower().removeprefix("0x").replace(" ", "").replace(":", "")
+    if not compact:
+        if value.strip():
+            raise ValueError("Header field must contain hexadecimal digits")
+        return None
+    if len(compact) > width or any(char not in "0123456789abcdef" for char in compact):
+        raise ValueError("Header field is out of range or not hexadecimal")
+    return int(compact, 16)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -109,6 +147,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             normalized_mac = normalize_mac(mac)
             result = await async_discover_device(str(host), normalized_mac)
         except (DiscoveryError, ValueError):
+            _LOGGER.debug("DHCP discovery failed; see discovery diagnostics")
             return self.async_abort(reason="cannot_connect")
 
         await self.async_set_unique_id(result.mac)
@@ -260,12 +299,30 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors[CONF_MODEL] = "invalid_model"
             return None
 
+        header_values: dict[str, int | None] = {}
+        for key, width in ((CONF_AUTH, 4), (CONF_COMPANY, 2)):
+            try:
+                header_values[key] = _parse_header_hex(user_input.get(key, ""), width)
+            except ValueError:
+                errors[key] = f"invalid_{key}"
+        if errors:
+            return None
+        company = header_values[CONF_COMPANY]
         try:
-            result = await async_discover_device(host, mac, MODEL_WIRE_TYPES[model])
+            result = await async_discover_device(
+                host,
+                mac,
+                MODEL_WIRE_TYPES[model],
+                company=DISCOVERY_COMPANY if company is None else company,
+                auth=header_values[CONF_AUTH],
+                compatibility_probes=True,
+            )
         except DiscoveryTimeoutError:
+            _LOGGER.debug("Manual discovery timed out; see discovery diagnostics")
             errors["base"] = "cannot_connect"
             return None
         except DiscoveryError:
+            _LOGGER.debug("Manual discovery failed; see discovery diagnostics")
             errors["base"] = "cannot_connect"
             return None
 
