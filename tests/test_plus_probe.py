@@ -388,7 +388,9 @@ class WireTests(unittest.TestCase):
         self.assertEqual(saved["second_seen"], 2)
         self.assertEqual(body["code"], 200)
 
-    def full_run(self, property_code=69, identity_ok=True, interactive=False):
+    def full_run(
+        self, property_code=69, identity_ok=True, interactive=False, power_only=False
+    ):
         powers = iter([0, 0, 0, 0, 1, 0])
         sent = []
 
@@ -416,6 +418,8 @@ class WireTests(unittest.TestCase):
                 return [response(req, code=132)]
             assert req["path"].endswith("/thing/service/property/get")
             assert req["body"]["method"] == p.READ_METHOD
+            if power_only and req["body"]["params"] != ["PowerSwitch"]:
+                return [response(req, code=128)]
             body = {
                 "id": req["body"]["id"],
                 "code": 200 if property_code == 69 else 401,
@@ -463,6 +467,17 @@ class WireTests(unittest.TestCase):
         report, _ = self.full_run(property_code=129, interactive=True)
         self.assertEqual(report["observation"]["status"], "skipped_no_power_read")
         self.assertIn("authorization", report["next_step"])
+
+    def test_single_property_fallback_when_multi_property_list_is_rejected(self):
+        report, sent = self.full_run(power_only=True)
+        probes = {r["probe"]: r for r in report["probes"]}
+        self.assertEqual(probes["property_named"]["coap_code"], "4.00")
+        self.assertIn(
+            "PowerSwitch", probes["property_power_only"]["validated_properties"]
+        )
+        self.assertTrue(
+            any(r["body"] and r["body"]["params"] == ["PowerSwitch"] for r in sent)
+        )
 
 
 if __name__ == "__main__":

@@ -884,6 +884,15 @@ def run(target, observe_seconds=45):
                 if values:
                     result["validated_properties"] = values
                     successful.append((path, params, con, content, values))
+            if not successful:
+                # A firmware may reject the whole list for one unsupported field.
+                result, body = probe(
+                    "property_power_only", path, READ_METHOD, ["PowerSwitch"]
+                )
+                values = properties_from(result, body)
+                if values:
+                    result["validated_properties"] = values
+                    successful.append((path, ["PowerSwitch"], True, 50, values))
             # Content-format fallback is diagnostic, not a claim of authorized SDK use.
             if not successful:
                 result, body = probe(
