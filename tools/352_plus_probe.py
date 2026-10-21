@@ -505,9 +505,10 @@ class Client:
                 transmissions += 1
                 result["sent"] += 1
                 next_send = now + self.timeout
-            ready, _, _ = select.select(
-                [self.sock], [], [], min(0.2, max(0, end - now))
-            )
+            wait = min(0.2, max(0, end - now))
+            if transmissions < 2 and not acked:
+                wait = min(wait, max(0, next_send - now))
+            ready, _, _ = select.select([self.sock], [], [], wait)
             if not ready:
                 continue
             try:
@@ -1103,7 +1104,7 @@ def main():
         return 2
     if report["status"] == "interrupted":
         return 130
-    return 1 if report["status"] == "runtime_error" else 0
+    return 1 if report["status"] in {"runtime_error", "target_is_sender"} else 0
 
 
 if __name__ == "__main__":
