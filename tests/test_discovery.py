@@ -38,6 +38,9 @@ with patch.dict(
     base = importlib.import_module(f"{PACKAGE}.protocols.base")
     models = importlib.import_module(f"{PACKAGE}.models")
     m25 = importlib.import_module(f"{PACKAGE}.protocols.m25")
+    local = importlib.import_module(f"{PACKAGE}.local_discovery")
+    coap = importlib.import_module(f"{PACKAGE}.protocols.coap_discovery")
+    life_models = importlib.import_module(f"{PACKAGE}.life_models")
 
 HOST = "192.0.2.123"
 MAC = bytes.fromhex("123456789abc")

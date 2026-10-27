@@ -8,7 +8,7 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from . import ConfigEntry
+from . import ConfigEntry, LocalConfigEntry
 from .const import CONF_AUTH, CONF_HOST, CONF_MAC
 
 _TO_REDACT = {
@@ -22,6 +22,15 @@ _TO_REDACT = {
     "identifier",
     "identifiers",
     "device_id",
+    "device_name",
+    "deviceName",
+    "unique_id",
+    "accessKey",
+    "accessToken",
+    "access_key",
+    "access_token",
+    "token",
+    "random",
     "source",
     "source_endpoint",
     "ip",
@@ -38,7 +47,7 @@ _TO_REDACT = {
 
 
 async def async_get_config_entry_diagnostics(
-    _hass: HomeAssistant, entry: ConfigEntry
+    _hass: HomeAssistant, entry: ConfigEntry | LocalConfigEntry
 ) -> dict[str, Any]:
     """Return useful state metadata without local addresses or packet material."""
     return async_redact_data(

@@ -1,10 +1,10 @@
 {
-  "title": "352 老款空气设备本地接入",
+  "title": "352 设备本地接入",
   "config": {
     "step": {
       "user": {
-        "title": "添加 352 空气设备",
-        "description": "自动发现局域网中的设备，或手动填写地址并选择全部支持型号。",
+        "title": "添加 352 本地设备",
+        "description": "自动发现已联网的 352 设备，或填写 IP 地址进行本地探测。旧 Air 和新版 Life 设备按实际响应分别识别。",
         "menu_options": {
           "auto": "自动发现设备",
           "manual": "手动添加（全部型号）"
@@ -26,10 +26,10 @@
       },
       "reconfigure": {
         "title": "重新配置设备",
-        "description": "更新局域网地址或型号，并使用只读请求验证设备。下一步可以选择是否清除机器本地定时。 鉴权码和公司码通常留空；如已从自己的设备取得，可填写十六进制值（如 04 03、F1）。系统仍须收到并验证设备回包才会添加。",
+        "description": "填写新的本地地址后重新核验同一台设备。新版 Life 设备仍只提供本地连接状态。",
         "data": {
           "host": "IP 地址",
-          "mac": "MAC 地址",
+          "mac": "MAC 地址（可选）",
           "model": "型号",
           "auth": "鉴权码（可选，十六进制）",
           "company": "公司码（可选，十六进制）"
@@ -37,10 +37,10 @@
       },
       "manual": {
         "title": "手动添加设备",
-        "description": "填写设备当前的局域网地址、MAC 地址和准确型号。身份验证只读取设备；在后续可选定时步骤前不会更改机器设置。 鉴权码和公司码通常留空；如已从自己的设备取得，可填写十六进制值（如 04 03、F1）。系统仍须收到并验证设备回包才会添加。",
+        "description": "填写设备当前 IPv4 地址。MAC 可留空，型号可选 Auto 自动识别；填写 MAC 可进一步核对设备。鉴权码和公司码仅用于旧 Air 协议，通常留空。新版 Life 设备目前仅支持本地发现和连接状态。",
         "data": {
           "host": "IP 地址",
-          "mac": "MAC 地址",
+          "mac": "MAC 地址（可选）",
           "model": "型号",
           "auth": "鉴权码（可选，十六进制）",
           "company": "公司码（可选，十六进制）"
@@ -56,13 +56,17 @@
       },
       "select_device": {
         "title": "选择发现的设备",
-        "description": "选择要添加的设备。下一步需确认其零售型号，因为同一协议族可能包含多个型号。",
+        "description": "选择要添加的设备。旧 Air 设备需确认零售型号；新版 Life 设备会先说明当前可用功能。",
         "data": {
           "device": "设备"
         }
       },
       "auto": {
         "title": "自动发现设备"
+      },
+      "confirm_local": {
+        "title": "添加本地发现设备",
+        "description": "已通过局域网响应识别到 {model}，地址为 {host}。\n\n添加后可查看局域网连接状态。此设备的控制与测量数据尚未接入，不会创建开关、风速或空气质量实体。无需云账号，现有设备配网和绑定保持不变。"
       }
     },
     "error": {
@@ -74,17 +78,18 @@
       "schedule_cleanup_failed": "未能清除并确认本地定时；请重试，或关闭此选项以保留现有定时",
       "invalid_auth": "请输入 0000 到 FFFF 之间的十六进制鉴权码，或留空",
       "invalid_company": "请输入 00 到 FF 之间的十六进制公司码，或留空",
-      "invalid_device": "请选择已发现的设备"
+      "invalid_device": "请选择已发现的设备",
+      "mac_required_for_header": "填写旧协议鉴权码或公司码时，需要同时填写 MAC 地址"
     },
     "abort": {
       "already_configured": "该设备已经配置",
       "cannot_connect": "没有收到设备的有效响应",
       "invalid_discovery": "发现信息不完整",
       "unsupported_device": "暂不支持发现到的协议族",
-      "unique_id_mismatch": "该 MAC 地址属于另一个已配置设备"
+      "unique_id_mismatch": "响应的设备身份与当前配置不一致"
     },
     "progress": {
-      "searching": "正在搜索局域网中的新设备，最多等待 {seconds} 秒。发现可添加设备后立即显示结果；未发现时会定期重试。"
+      "searching": "正在尝试旧版和新版的局域网发现方式，最多等待 {seconds} 秒。发现可添加设备后及时显示结果。"
     }
   },
   "entity": {
@@ -190,6 +195,11 @@
     "switch": {
       "child_lock": {
         "name": "童锁"
+      }
+    },
+    "binary_sensor": {
+      "local_connection": {
+        "name": "局域网连接"
       }
     }
   },

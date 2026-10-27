@@ -61,6 +61,9 @@ class _Flow:
     def async_create_entry(self, **kwargs):
         return {"type": "create_entry", **kwargs}
 
+    def async_abort(self, **kwargs):
+        return {"type": "abort", **kwargs}
+
     def async_update_reload_and_abort(self, entry, **kwargs):
         return {"type": "update", "entry": entry, **kwargs}
 
@@ -104,9 +107,14 @@ with patch.dict(
     },
 ):
     flow = importlib.import_module(f"{PACKAGE}.config_flow")
+    life_products = importlib.import_module(f"{PACKAGE}.life_models").LIFE_PRODUCTS
 
 INPUT = {"host": "192.0.2.123", "mac": "12:34:56:78:9a:bc", "model": "X83C_PLUS"}
 RESULT = flow.DiscoveryResult(INPUT["host"], INPUT["mac"], 0xF1, 2, 0xD3E7)
+LIFE_RESULT = flow.LocalIdentity(
+    INPUT["host"], "a1TNKV3wr7I", "fixture-device", "device_info", INPUT["mac"]
+)
+INTERFACES = (SimpleNamespace(address="192.0.2.1", broadcast="192.0.2.255"),)
 
 
 class SchemaTests(unittest.TestCase):
@@ -141,6 +149,13 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.interface_patch = patch.object(
+            flow, "async_scan_interfaces", AsyncMock(return_value=INTERFACES)
+        )
+        self.interface_patch.start()
+        self.addCleanup(self.interface_patch.stop)
+
     async def _finish_network_scan(self, config):
         progress = await config.async_step_auto()
         self.assertEqual(progress["type"], "progress")
@@ -225,14 +240,17 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(mode=mode):
                 config = flow.ConfigFlow()
                 config._async_current_entries = lambda: [
-                    SimpleNamespace(unique_id=RESULT.mac)
+                    SimpleNamespace(unique_id=RESULT.mac, data={})
                 ]
                 scan = AsyncMock(return_value=() if mode == "empty" else (RESULT,))
                 if mode == "failed":
                     scan.side_effect = flow.DiscoveryError
                 with patch.object(flow, "async_discover_devices", scan):
                     result = await self._finish_network_scan(config)
-                scan.assert_awaited_once_with(excluded_macs=frozenset({RESULT.mac}))
+                scan.assert_awaited_once_with(
+                    interfaces=INTERFACES,
+                    excluded_macs=frozenset({RESULT.mac}),
+                )
                 self.assertEqual(result["type"], "menu")
                 self.assertEqual(result["step_id"], "no_devices")
                 self.assertEqual(result["menu_options"], ["auto", "manual"])
@@ -253,6 +271,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(first["type"], "progress")
             self.assertEqual(first["description_placeholders"], {"seconds": "45"})
             self.assertIs(first["progress_task"], second["progress_task"])
+            await asyncio.sleep(0)
             self.assertEqual(discover.call_count, 1)
             completed.set()
             await first["progress_task"]
@@ -300,6 +319,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
             INPUT["host"],
             INPUT["mac"],
             (2,),
+            interfaces=INTERFACES,
             auth=0x1234,
             company=0xF5,
             compatibility_probes=True,
@@ -363,6 +383,137 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["type"], "update")
         self.assertEqual(result["data_updates"]["auth"], RESULT.auth)
         config._abort_if_unique_id_mismatch.assert_called_once()
+
+    async def test_life_manual_requires_explicit_discovery_only_confirmation(self):
+        config = flow.ConfigFlow()
+        with patch.object(
+            flow, "async_discover_device", AsyncMock(return_value=LIFE_RESULT)
+        ):
+            confirm = await config.async_step_manual(INPUT)
+        self.assertEqual(confirm["step_id"], "confirm_local")
+        self.assertEqual(config.unique_id, LIFE_RESULT.unique_id)
+        self.assertEqual(confirm["description_placeholders"]["model"], "X83C Plus")
+        result = await config.async_step_confirm_local({})
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(result["data"]["connection_type"], "local_discovery")
+        self.assertEqual(result["data"]["model"], "LIFE_X83C_PLUS")
+        self.assertNotIn("auth", result["data"])
+        self.assertNotIn("wire_type", result["data"])
+        schedule.async_clear_local_schedules.assert_not_awaited()
+
+    async def test_life_automatic_selection_and_configured_identity_filter(self):
+        config = flow.ConfigFlow()
+        with patch.object(
+            flow, "async_discover_devices", AsyncMock(return_value=(LIFE_RESULT,))
+        ):
+            select = await self._finish_network_scan(config)
+        self.assertEqual(select["step_id"], "select_device")
+        confirm = await config.async_step_select_device(
+            {"device": LIFE_RESULT.unique_id}
+        )
+        self.assertEqual(confirm["step_id"], "confirm_local")
+        configured = flow.ConfigFlow()
+        configured._async_current_entries = lambda: [
+            SimpleNamespace(unique_id=LIFE_RESULT.unique_id, data={"mac": RESULT.mac})
+        ]
+        with patch.object(
+            flow, "async_discover_devices", AsyncMock(return_value=(LIFE_RESULT,))
+        ) as scan:
+            empty = await self._finish_network_scan(configured)
+        self.assertEqual(empty["step_id"], "no_devices")
+        self.assertEqual(
+            scan.await_args.kwargs["excluded_macs"],
+            frozenset({LIFE_RESULT.unique_id, RESULT.mac}),
+        )
+
+    async def test_manual_auto_without_mac_learns_identity(self):
+        config = flow.ConfigFlow()
+        user_input = flow._full_schema()({"host": INPUT["host"]})
+        self.assertEqual(user_input["model"], "AUTO")
+        self.assertEqual(user_input["mac"], "")
+        with patch.object(
+            flow, "async_discover_device", AsyncMock(return_value=LIFE_RESULT)
+        ) as discover:
+            result = await config.async_step_manual(user_input)
+        self.assertEqual(discover.await_args.args, (INPUT["host"], None, (1, 2, 3, 4)))
+        self.assertEqual(result["step_id"], "confirm_local")
+
+    async def test_manual_auto_legacy_still_requires_retail_model(self):
+        config = flow.ConfigFlow()
+        with patch.object(
+            flow, "async_discover_device", AsyncMock(return_value=RESULT)
+        ):
+            result = await config.async_step_manual({**INPUT, "model": "AUTO"})
+        self.assertEqual(result["step_id"], "confirm_model")
+        self.assertNotIn("model", flow.ConfigFlow._entry_data(RESULT, "AUTO"))
+
+    async def test_other_life_models_are_identified_without_legacy_control(self):
+        for key, product in life_products.items():
+            with self.subTest(model=product.model):
+                config = flow.ConfigFlow()
+                identity = flow.LocalIdentity(INPUT["host"], key, "fixture", "alcs")
+                user_input = flow._full_schema()(
+                    {"host": INPUT["host"], "model": product.model}
+                )
+                with patch.object(
+                    flow, "async_discover_device", AsyncMock(return_value=identity)
+                ):
+                    confirm = await config.async_step_manual(user_input)
+                self.assertEqual(confirm["step_id"], "confirm_local")
+                entry = await config.async_step_confirm_local({})
+                self.assertEqual(entry["data"]["product_key"], key)
+                self.assertNotIn("auth", entry["data"])
+
+    async def test_life_wrong_selected_model_is_rejected(self):
+        config = flow.ConfigFlow()
+        with patch.object(
+            flow, "async_discover_device", AsyncMock(return_value=LIFE_RESULT)
+        ):
+            result = await config.async_step_manual({**INPUT, "model": "LIFE_Z120"})
+        self.assertEqual(result["errors"], {"model": "model_mismatch"})
+
+    async def test_same_mac_cannot_create_second_protocol_entry(self):
+        config = flow.ConfigFlow()
+        config._async_current_entries = lambda: [
+            SimpleNamespace(unique_id=RESULT.mac, data=INPUT)
+        ]
+        with patch.object(
+            flow, "async_discover_device", AsyncMock(return_value=LIFE_RESULT)
+        ):
+            result = await config.async_step_manual(INPUT)
+        self.assertEqual(result, {"type": "abort", "reason": "already_configured"})
+
+    async def test_life_reconfigure_preserves_identity_and_discovery_only_mode(self):
+        config = flow.ConfigFlow()
+        entry = SimpleNamespace(data=LIFE_RESULT.as_entry_data())
+        config._get_reconfigure_entry = lambda: entry
+        config._abort_if_unique_id_mismatch = Mock()
+        values = flow._full_schema(entry.data)({})
+        with patch.object(
+            flow, "async_discover_device", AsyncMock(return_value=LIFE_RESULT)
+        ):
+            result = await config.async_step_reconfigure(values)
+        self.assertEqual(result["step_id"], "confirm_local")
+        result = await config.async_step_confirm_local({})
+        self.assertEqual(result["type"], "update")
+        self.assertEqual(result["data_updates"], LIFE_RESULT.as_entry_data())
+        config._abort_if_unique_id_mismatch.assert_called_once()
+
+    async def test_invalid_target_and_header_without_mac_do_not_probe(self):
+        for value in ("0.0.0.0", "255.255.255.255", "224.0.1.187", "bad"):
+            with self.subTest(host=value):
+                config = flow.ConfigFlow()
+                with patch.object(flow, "async_discover_device", AsyncMock()) as probe:
+                    result = await config.async_step_manual({**INPUT, "host": value})
+                self.assertEqual(result["errors"], {"host": "invalid_host"})
+                probe.assert_not_awaited()
+        config = flow.ConfigFlow()
+        with patch.object(flow, "async_discover_device", AsyncMock()) as probe:
+            result = await config.async_step_manual(
+                {**INPUT, "mac": "", "auth": "0403"}
+            )
+        self.assertEqual(result["errors"], {"mac": "mac_required_for_header"})
+        probe.assert_not_awaited()
 
 
 if __name__ == "__main__":

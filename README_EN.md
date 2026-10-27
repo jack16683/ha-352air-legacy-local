@@ -2,9 +2,10 @@
 
 [简体中文](README.md)
 
-A fully local Home Assistant integration for already-networked legacy 352 air
-devices. It reads state and sends controls over LAN UDP port 11530, without a
-352 account or the retired cloud service.
+A local Home Assistant integration for already-networked 352 devices. Legacy
+Air devices use UDP 11530 for state and control. Newer Life devices can be
+discovered through read-only CoAP and added with local connection status.
+No 352 account or cloud connection is required.
 
 > This is an independent community integration. It is not affiliated with or
 > endorsed by 352.
@@ -34,7 +35,7 @@ or Git history. The [research index](docs/README.md) links the
 [APK static-analysis report](docs/apk-static-analysis.md), and the sanitized
 [X83C capture and hardware-validation report](docs/x83c-capture-validation.md).
 
-## Support confidence
+## Legacy Air support confidence
 
 | Model | State | Control | Evidence |
 |---|---|---|---|
@@ -47,7 +48,32 @@ or Git history. The [research index](docs/README.md) links the
 | M25 | Experimental | Backlight only | Air monitor, not an air-purifier control surface |
 
 APK confirmation proves that the old app contained a builder/parser; it does
-not prove that every firmware accepts a command.
+not prove that every firmware accepts a command. Retail models such as Plus
+and G30/G45 may use different connection systems; actual replies determine
+which path can be used.
+
+## Life devices: local discovery and setup
+
+Both automatic and manual setup try legacy UDP, CoAP device-info, and ALCS
+discovery. Enabled HA IPv4 adapters are respected, and one failing mechanism
+does not prevent the others from finding a device.
+
+The built-in catalog recognizes 35 product keys across air purifiers, water
+purifiers, and humidifiers, including X83C Plus, X86/X86C, X86 Pro, X63C/X66C,
+X63C Pet, X88/X88C, X89C, Y100/Y100C, Y109/Y109C, Z70/Z90/Z91/Z120/Z122,
+Q80, G30/G45, S100/K10/S130/S106/B420/B425HC, Dr03/Dr10, and
+Skin/H80/H100/H150/H300/H301/H400/H500/H520 families. Shared product keys
+retain combined model labels.
+
+**Catalog recognition is not hardware or control verification.** A valid
+local response is required. Life setup explains the limited functionality
+before creating only a diagnostic **Local connection** entity. It does not
+create power, fan-speed, humidity, or air-quality entities. Read-only
+reachability probes do not establish control authorization.
+
+This scope includes no cloud login, device binding, Bluetooth provisioning,
+SoftAP network switching, firmware updates, or cloud interception. Devices
+must already be on the LAN; entering a model alone cannot add a silent device.
 
 ## Features
 
@@ -85,14 +111,16 @@ command values 4 and 5, so this project does not expose an unverified
 6. Open **Settings → Devices & services → Add integration** and search for
    **352 Air Legacy Local**.
 
-Discovery identifies a protocol family first and asks for the exact model when
-the LAN protocol cannot distinguish retail variants. Use manual setup with the
-device IP, MAC, and model if discovery is unavailable. Identity verification
-never provisions Wi-Fi, locks the device, or changes purifier state. After the
-address and model are confirmed, setup separately asks whether to clear all
-four recurring schedules stored in the purifier. The option is off by default;
-when selected, setup writes once and requires two successful empty reads. The
-same step is available during reconfiguration.
+Discovery lists devices with valid replies. Legacy Air devices require model
+confirmation; Life devices require confirmation of discovery-only setup.
+Manual setup needs the current IP address; MAC is optional and Auto can
+identify the product. Supplying legacy auth/company values still requires a
+MAC. Discovery never provisions Wi-Fi or locks a device.
+
+Only legacy devices with supported recurring schedules offer the separate
+option to clear all four stored schedule slots. It is off by default and
+requires two successful empty reads after a write. Reconfiguration verifies
+that the responding identity belongs to the same device.
 
 ## Check schedules left by the old app
 

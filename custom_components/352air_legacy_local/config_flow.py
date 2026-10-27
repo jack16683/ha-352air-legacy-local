@@ -25,7 +25,6 @@ from .const import (
     DOMAIN,
     MODEL_OPTIONS,
     MODEL_WIRE_TYPES,
-    MODEL_X83C,
     NETWORK_DISCOVERY_TIMEOUT_SECONDS,
     compatible_models,
     normalize_mac,
@@ -34,8 +33,15 @@ from .discovery import (
     DiscoveryError,
     DiscoveryResult,
     DiscoveryTimeoutError,
+)
+from .life_models import LIFE_MODEL_OPTIONS
+from .local_discovery import (
+    LocalIdentity,
+    LocalResult,
     async_discover_device,
     async_discover_devices,
+    async_scan_interfaces,
+    result_id,
 )
 from .protocols.discovery import DISCOVERY_COMPANY
 from .schedule import (
@@ -46,6 +52,17 @@ from .schedule import (
 
 _LOGGER = logging.getLogger(__name__)
 _CONF_DEVICE = "device"
+_AUTO_MODEL = "AUTO"
+_MANUAL_MODELS = {
+    _AUTO_MODEL: "Auto",
+    **MODEL_OPTIONS,
+    **LIFE_MODEL_OPTIONS,
+}
+_SHARED_MODEL_NAMES = {
+    "X83C_PLUS": "LIFE_X83C_PLUS",
+    "G30": "LIFE_G30_G45",
+    "G45": "LIFE_G30_G45",
+}
 
 
 def _model_schema(
@@ -65,11 +82,11 @@ def _full_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_HOST, default=defaults.get(CONF_HOST, "")): str,
-            vol.Required(CONF_MAC, default=defaults.get(CONF_MAC, "")): str,
+            vol.Optional(CONF_MAC, default=defaults.get(CONF_MAC, "")): str,
             vol.Required(
                 CONF_MODEL,
-                default=defaults.get(CONF_MODEL, MODEL_X83C),
-            ): vol.In(MODEL_OPTIONS),
+                default=defaults.get(CONF_MODEL, _AUTO_MODEL),
+            ): vol.In(_MANUAL_MODELS),
             vol.Optional(
                 CONF_AUTH, default=_header_default(defaults, CONF_AUTH, 4)
             ): selector.TextSelector(
@@ -112,11 +129,39 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     MINOR_VERSION = 1
 
-    _pending_discovery: DiscoveryResult | None = None
+    _pending_discovery: LocalResult | None = None
     _pending_model: str | None = None
     _pending_reconfigure_entry: config_entries.ConfigEntry[Any] | None = None
-    _discovered_devices: dict[str, DiscoveryResult] | None = None
-    _discovery_task: asyncio.Task[tuple[DiscoveryResult, ...]] | None = None
+    _discovered_devices: dict[str, LocalResult] | None = None
+    _discovery_task: asyncio.Task[tuple[LocalResult, ...]] | None = None
+
+    def _configured_identities(self) -> frozenset[str]:
+        """Filter both stable protocol IDs and known MACs from every mechanism."""
+        identifiers: set[str] = set()
+        for entry in self._async_current_entries():
+            if entry.unique_id is not None:
+                identifiers.add(entry.unique_id)
+            if mac := entry.data.get(CONF_MAC):
+                identifiers.add(str(mac))
+        return frozenset(identifiers)
+
+    async def _async_scan(self) -> tuple[LocalResult, ...]:
+        return await async_discover_devices(
+            interfaces=await async_scan_interfaces(self.hass),
+            excluded_macs=self._configured_identities(),
+        )
+
+    def _mac_already_configured(self, result: LocalResult) -> bool:
+        """Do not create a second protocol entry for an already configured MAC."""
+        if result.mac is None:
+            return False
+        return any(
+            entry.unique_id != result_id(result)
+            and (
+                entry.unique_id == result.mac or entry.data.get(CONF_MAC) == result.mac
+            )
+            for entry in self._async_current_entries()
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -132,16 +177,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Use a verified DHCP candidate or search the local network read-only."""
         if self._pending_discovery is not None:
+            if isinstance(self._pending_discovery, LocalIdentity):
+                return await self.async_step_confirm_local()
             return await self.async_step_confirm_model()
 
         if self._discovery_task is None:
-            excluded_macs = frozenset(
-                entry.unique_id
-                for entry in self._async_current_entries()
-                if entry.unique_id is not None
-            )
             self._discovery_task = self.hass.async_create_task(
-                async_discover_devices(excluded_macs=excluded_macs),
+                self._async_scan(),
                 name="352air network setup discovery",
             )
         if not self._discovery_task.done():
@@ -160,9 +202,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except DiscoveryError:
             _LOGGER.debug("Automatic discovery failed; see discovery diagnostics")
             discovered = ()
-        configured = {entry.unique_id for entry in self._async_current_entries()}
+        configured = self._configured_identities()
         self._discovered_devices = {
-            result.mac: result for result in discovered if result.mac not in configured
+            result_id(result): result
+            for result in discovered
+            if result_id(result) not in configured and result.mac not in configured
         }
         if not self._discovered_devices:
             return self.async_show_progress_done(next_step_id="no_devices")
@@ -184,14 +228,22 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             selected = str(user_input.get(_CONF_DEVICE, ""))
             if (result := discovered.get(selected)) is not None:
-                await self.async_set_unique_id(result.mac)
+                if self._mac_already_configured(result):
+                    return self.async_abort(reason="already_configured")
+                await self.async_set_unique_id(result_id(result))
                 self._abort_if_unique_id_configured(
                     updates=self._entry_data(result, None), reload_on_update=True
                 )
                 self._pending_discovery = result
+                if isinstance(result, LocalIdentity):
+                    return await self.async_step_confirm_local()
                 return await self.async_step_confirm_model()
         options = {
-            result.mac: f"352 ({result.host}, {result.mac})"
+            result_id(result): (
+                f"352 {result.name} ({result.host}, 352Life)"
+                if isinstance(result, LocalIdentity)
+                else f"352 ({result.host}, {result.mac}, Legacy)"
+            )
             for result in discovered.values()
         }
         return self.async_show_form(
@@ -208,12 +260,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             result = await self._async_validate_input(user_input, errors)
             if result is not None:
+                if self._mac_already_configured(result):
+                    return self.async_abort(reason="already_configured")
                 model = str(user_input[CONF_MODEL])
-                await self.async_set_unique_id(result.mac)
+                await self.async_set_unique_id(result_id(result))
                 self._abort_if_unique_id_configured(
                     updates=self._entry_data(result, model),
                     reload_on_update=True,
                 )
+                if model == _AUTO_MODEL and isinstance(result, DiscoveryResult):
+                    self._pending_discovery = result
+                    return await self.async_step_confirm_model()
                 return await self._async_continue_after_identity(result, model)
 
         return self.async_show_form(
@@ -223,7 +280,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 or (
                     {
                         CONF_HOST: self._pending_discovery.host,
-                        CONF_MAC: self._pending_discovery.mac,
+                        CONF_MAC: self._pending_discovery.mac or "",
                     }
                     if self._pending_discovery
                     else None
@@ -243,12 +300,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             normalized_mac = normalize_mac(mac)
-            result = await async_discover_device(str(host), normalized_mac)
+            result = await async_discover_device(
+                str(host),
+                normalized_mac,
+                interfaces=await async_scan_interfaces(self.hass),
+            )
         except (DiscoveryError, ValueError):
             _LOGGER.debug("DHCP discovery failed; see discovery diagnostics")
             return self.async_abort(reason="cannot_connect")
 
-        await self.async_set_unique_id(result.mac)
+        await self.async_set_unique_id(result_id(result))
+        if self._mac_already_configured(result):
+            return self.async_abort(reason="already_configured")
         self._abort_if_unique_id_configured(
             updates=self._entry_data(result, None),
             reload_on_update=True,
@@ -263,6 +326,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         result = self._pending_discovery
         if result is None:
             return self.async_abort(reason="invalid_discovery")
+        if isinstance(result, LocalIdentity):
+            return await self.async_step_confirm_local()
 
         models = compatible_models(result.wire_type)
         if not models:
@@ -283,6 +348,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=_model_schema(models=models),
         )
 
+    async def async_step_confirm_local(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Clearly confirm discovery-only setup, without inventing control state."""
+        result = self._pending_discovery
+        if not isinstance(result, LocalIdentity):
+            return self.async_abort(reason="invalid_discovery")
+        self._pending_model = result.model
+        if user_input is not None:
+            return self._finish_pending_entry()
+        return self.async_show_form(
+            step_id="confirm_local",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "model": result.name,
+                "host": result.host,
+                "mechanism": result.mechanism,
+            },
+        )
+
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -292,9 +377,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             result = await self._async_validate_input(user_input, errors)
             if result is not None:
-                await self.async_set_unique_id(result.mac)
+                await self.async_set_unique_id(result_id(result))
                 self._abort_if_unique_id_mismatch()
                 model = str(user_input[CONF_MODEL])
+                if model == _AUTO_MODEL and isinstance(result, DiscoveryResult):
+                    self._pending_discovery = result
+                    self._pending_reconfigure_entry = entry
+                    return await self.async_step_confirm_model()
                 return await self._async_continue_after_identity(
                     result,
                     model,
@@ -313,7 +402,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Optionally remove the device's four persistent recurring schedules."""
         result = self._pending_discovery
         model = self._pending_model
-        if result is None or model is None:
+        if not isinstance(result, DiscoveryResult) or model is None:
             return self.async_abort(reason="invalid_discovery")
 
         errors: dict[str, str] = {}
@@ -346,7 +435,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _async_continue_after_identity(
         self,
-        result: DiscoveryResult,
+        result: LocalResult,
         model: str,
         *,
         reconfigure_entry: config_entries.ConfigEntry[Any] | None = None,
@@ -354,7 +443,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Store verified identity data before the optional write step."""
         self._pending_discovery = result
         self._pending_model = model
-        self._pending_reconfigure_entry = reconfigure_entry
+        if reconfigure_entry is not None:
+            self._pending_reconfigure_entry = reconfigure_entry
+        if isinstance(result, LocalIdentity):
+            self._pending_model = result.model
+            return await self.async_step_confirm_local()
         if schedule_cleanup_supported(result.wire_type):
             return await self.async_step_schedule_cleanup()
         return self._finish_pending_entry()
@@ -371,29 +464,37 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._pending_reconfigure_entry,
                 data_updates=data,
             )
-        return self.async_create_entry(
-            title=f"352 {MODEL_OPTIONS[model]}",
-            data=data,
+        name = (
+            result.name if isinstance(result, LocalIdentity) else MODEL_OPTIONS[model]
         )
+        return self.async_create_entry(title=f"352 {name}", data=data)
 
     async def _async_validate_input(
         self, user_input: Mapping[str, Any], errors: dict[str, str]
-    ) -> DiscoveryResult | None:
+    ) -> LocalResult | None:
         """Validate a form with a read-only targeted discovery query."""
         try:
-            host = str(ipaddress.IPv4Address(str(user_input[CONF_HOST]).strip()))
+            address = ipaddress.IPv4Address(str(user_input[CONF_HOST]).strip())
+            if (
+                address.is_unspecified
+                or address.is_multicast
+                or int(address) == 2**32 - 1
+            ):
+                raise ipaddress.AddressValueError
+            host = str(address)
         except (ipaddress.AddressValueError, KeyError):
             errors[CONF_HOST] = "invalid_host"
             return None
 
         try:
-            mac = normalize_mac(str(user_input[CONF_MAC]))
-        except (TypeError, ValueError, KeyError):
+            entered_mac = str(user_input.get(CONF_MAC, "")).strip()
+            mac = normalize_mac(entered_mac) if entered_mac else None
+        except (TypeError, ValueError):
             errors[CONF_MAC] = "invalid_mac"
             return None
 
         model = str(user_input.get(CONF_MODEL, ""))
-        if model not in MODEL_WIRE_TYPES:
+        if model not in _MANUAL_MODELS:
             errors[CONF_MODEL] = "invalid_model"
             return None
 
@@ -405,12 +506,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[key] = f"invalid_{key}"
         if errors:
             return None
+        if mac is None and any(value is not None for value in header_values.values()):
+            errors[CONF_MAC] = "mac_required_for_header"
+            return None
         company = header_values[CONF_COMPANY]
         try:
             result = await async_discover_device(
                 host,
                 mac,
-                MODEL_WIRE_TYPES[model],
+                MODEL_WIRE_TYPES.get(model, (1, 2, 3, 4)),
+                interfaces=await async_scan_interfaces(self.hass),
                 company=DISCOVERY_COMPANY if company is None else company,
                 auth=header_values[CONF_AUTH],
                 compatibility_probes=True,
@@ -424,15 +529,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "cannot_connect"
             return None
 
-        if model not in compatible_models(result.wire_type, (model,)):
+        if isinstance(result, LocalIdentity):
+            if model not in {_AUTO_MODEL, result.model} and (
+                _SHARED_MODEL_NAMES.get(model) != result.model
+            ):
+                errors[CONF_MODEL] = "model_mismatch"
+                return None
+        elif model != _AUTO_MODEL and model not in compatible_models(
+            result.wire_type, (model,)
+        ):
             errors[CONF_MODEL] = "model_mismatch"
             return None
         return result
 
     @staticmethod
-    def _entry_data(result: DiscoveryResult, model: str | None) -> dict[str, str | int]:
+    def _entry_data(result: LocalResult, model: str | None) -> dict[str, str | int]:
         """Build config-entry data without retaining discovery packet bytes."""
         data = result.as_entry_data()
-        if model is not None:
+        if model not in {None, _AUTO_MODEL} and not isinstance(result, LocalIdentity):
             data[CONF_MODEL] = model
         return data

@@ -143,7 +143,7 @@ def _decode_passive_status(
             and payload[:3] == b"\x02\x5a\xa1"
             and (len(payload) == 33 or payload[33:35] == b"\x5a\xa1")
         )
-    elif wire_type in {3, 4} and len(payload) >= 16 and payload[0] == 0x01:
+    elif wire_type in {3, 4} and len(payload) >= 16 and payload[0] in {0x01, 0x02}:
         frame = payload[1:]
         minimum_data_length = 30 if wire_type == 3 else 29
         # Match the runtime decoder: removing the route moves the response
@@ -260,7 +260,11 @@ class _ReadOnlyNetworkDiscoveryProtocol:
     """Collect validated discovery replies and state broadcasts from the LAN."""
 
     def __init__(
-        self, sequences: set[int], excluded_macs: frozenset[str] = frozenset()
+        self,
+        sequences: set[int],
+        excluded_macs: frozenset[str] = frozenset(),
+        expected_host: str | None = None,
+        expected_mac: str | None = None,
     ) -> None:
         self.sequences = sequences
         self.excluded_macs = excluded_macs
@@ -269,9 +273,13 @@ class _ReadOnlyNetworkDiscoveryProtocol:
         self.received = 0
         self.probes = 0
         self.send_errors = 0
+        self.expected_host = expected_host
+        self.expected_mac = expected_mac
 
     def datagram_received(self, data: bytes, source: tuple[str, int]) -> None:
         self.received += 1
+        if self.expected_host is not None and source[0] != self.expected_host:
+            return
         outer = parse_outer_frame(data)
         if (
             outer is None
@@ -295,6 +303,12 @@ class _ReadOnlyNetworkDiscoveryProtocol:
             )
         if result is not None and result.mac in self.excluded_macs:
             return
+        if (
+            result is not None
+            and self.expected_mac is not None
+            and result.mac != self.expected_mac
+        ):
+            return
         if result is not None and (
             result.mac in self.results or len(self.results) < 64
         ):
@@ -307,13 +321,21 @@ async def async_discover_devices(
     response_timeout: float = NETWORK_DISCOVERY_TIMEOUT_SECONDS,
     retry_interval: float = NETWORK_DISCOVERY_RETRY_INTERVAL_SECONDS,
     excluded_macs: frozenset[str] = frozenset(),
+    targets: tuple[str, ...] = ("255.255.255.255",),
+    expected_host: str | None = None,
+    expected_mac: str | None = None,
 ) -> tuple[DiscoveryResult, ...]:
     """Search read-only until an eligible device replies or the window expires."""
     if response_timeout <= 0 or retry_interval <= 0:
         raise DiscoveryError("Discovery timeout and retry interval must be positive")
+    if not targets:
+        raise DiscoveryError("No enabled IPv4 discovery interface")
+    targets = tuple(dict.fromkeys(str(ipaddress.IPv4Address(t)) for t in targets))
     first_sequence = monotonic_ns() & 0xFFFF
     sequences = {(first_sequence + offset) & 0xFFFF for offset in range(4)}
-    protocol = _ReadOnlyNetworkDiscoveryProtocol(sequences, excluded_macs)
+    protocol = _ReadOnlyNetworkDiscoveryProtocol(
+        sequences, excluded_macs, expected_host, expected_mac
+    )
     endpoint = None
     resend_task: asyncio.Task[None] | None = None
     outcome = "interrupted"
@@ -342,12 +364,13 @@ async def async_discover_devices(
                         (first_sequence + offset) & 0xFFFF,
                         operation=operation,
                     )
-                    try:
-                        endpoint.sendto(packet, ("255.255.255.255", UDP_PORT))
-                    except OSError:
-                        protocol.send_errors += 1
-                    else:
-                        protocol.probes += 1
+                    for target in targets:
+                        try:
+                            endpoint.sendto(packet, (target, UDP_PORT))
+                        except OSError:
+                            protocol.send_errors += 1
+                        else:
+                            protocol.probes += 1
 
         deadline = asyncio.get_running_loop().time() + response_timeout
 
@@ -399,6 +422,7 @@ async def async_discover_device(
     company: int = DISCOVERY_COMPANY,
     auth: int | None = None,
     compatibility_probes: bool = False,
+    broadcast_targets: tuple[str, ...] = ("255.255.255.255",),
 ) -> DiscoveryResult:
     """Probe a known address/MAC with only documented read-only packets.
 
@@ -408,6 +432,9 @@ async def async_discover_device(
     parsed_host = ipaddress.ip_address(host)
     if parsed_host.version != 4:
         raise DiscoveryError("Only IPv4 addresses are supported")
+    broadcast_targets = tuple(
+        dict.fromkeys(str(ipaddress.IPv4Address(t)) for t in broadcast_targets)
+    )
 
     target_mac = mac_to_bytes(mac)
     probe_auth = DISCOVERY_AUTH if auth is None else auth
@@ -497,8 +524,8 @@ async def async_discover_device(
                 query = A5A0Codec().encode_query(CommandContext(identity, sequence))
                 packets = (
                     (directed, (str(parsed_host), UDP_PORT)),
-                    (directed, ("255.255.255.255", UDP_PORT)),
-                    (broadcast, ("255.255.255.255", UDP_PORT)),
+                    *((directed, (target, UDP_PORT)) for target in broadcast_targets),
+                    *((broadcast, (target, UDP_PORT)) for target in broadcast_targets),
                     (query, (str(parsed_host), UDP_PORT)),
                 )
                 for packet, target in packets:

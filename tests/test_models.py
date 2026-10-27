@@ -8,6 +8,7 @@ No device, Home Assistant instance or network connection is required.
 
 from __future__ import annotations
 
+import asyncio
 import binascii
 import importlib
 import math
@@ -265,6 +266,56 @@ def codec(name):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_f072_routes_across_all_models_and_validation_boundaries(self):
+        for name in ("X50", "X50S", "X60", "X70", "G30", "G45"):
+            with self.subTest(model=name):
+                response = status(name)
+                broadcast = bytearray(response)
+                broadcast[16] = 0x02
+                expected = codec(name).decode(response, PEER)
+                decoded = codec(name).decode(bytes(broadcast), PEER)
+                self.assertIsNotNone(expected)
+                self.assertIsNotNone(decoded)
+                self.assertEqual(decoded.state, expected.state)
+                self.assertEqual(decoded.raw_metadata["route"], 0x02)
+                self.assertIsNotNone(
+                    discovery._decode_passive_status(
+                        bytes(broadcast), PEER, HOST, MAC, {WIRE_TYPES[name]}
+                    )
+                )
+                corrupt = bytearray(broadcast)
+                corrupt[-1] ^= 1
+                self.assertIsNone(codec(name).decode(bytes(corrupt), PEER))
+                self.assertIsNone(
+                    discovery._decode_passive_status(
+                        bytes(corrupt), PEER, HOST, MAC, {WIRE_TYPES[name]}
+                    )
+                )
+                broadcast[16] = 0x03
+                self.assertIsNone(codec(name).decode(bytes(broadcast), PEER))
+
+        self.assertIsNone(codec("G45").decode(status("X50"), PEER))
+        self.assertIsNone(codec("X50").decode(status("G45"), PEER))
+
+    def test_g45_broadcast_is_discoverable_and_still_requires_valid_crc(self):
+        raw = bytearray(status("G45"))
+        raw[16] = 0x02
+        receiver = discovery._ReadOnlyNetworkDiscoveryProtocol({42})
+        receiver.datagram_received(bytes(raw), PEER)
+        self.assertEqual(receiver.results[MAC.hex(":")].wire_type, 4)
+        self.assertIsNotNone(
+            discovery._decode_passive_status(bytes(raw), PEER, HOST, MAC, {4})
+        )
+        raw[-1] ^= 1
+        self.assertIsNone(
+            discovery._decode_passive_status(bytes(raw), PEER, HOST, MAC, {4})
+        )
+        raw[-1] ^= 1
+        raw[16] = 0x03
+        self.assertIsNone(
+            discovery._decode_passive_status(bytes(raw), PEER, HOST, MAC, {4})
+        )
+
     def test_all_ten_models_have_matching_family_and_wire_metadata(self):
         self.assertEqual(set(WIRE_TYPES), set(const.MODEL_OPTIONS))
         self.assertEqual(set(WIRE_TYPES), set(models.DeviceModel.__members__))
@@ -468,6 +519,22 @@ class ProtocolTests(unittest.TestCase):
                     self.assertEqual(raw[12:16], bytes((0xF1, wire, 0xD3, 0xE7)))
                     self.assertEqual(raw[16:19], b"\x01\xf0\x72")
                     self.assertEqual(raw[-2:], crc(raw[19:-2]))
+
+
+class BroadcastRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_g45_broadcast_updates_client_state_and_listener(self):
+        client = runtime_module.LocalDeviceClient(
+            host=HOST, identity=identity("G45"), model=models.DeviceModel.G45
+        )
+        client._loop = asyncio.get_running_loop()
+        seen = []
+        client.add_listener(seen.append)
+        raw = bytearray(status("G45"))
+        raw[16] = 0x02
+        client._datagram_received(bytes(raw), PEER)
+        self.assertTrue(client.available)
+        self.assertEqual(client.state.pm25, 291)
+        self.assertEqual(seen, [client.state])
 
 
 class EntityTests(unittest.IsolatedAsyncioTestCase):

@@ -1,10 +1,10 @@
 {
-  "title": "352 Air Legacy Local",
+  "title": "352 Local Devices",
   "config": {
     "step": {
       "user": {
-        "title": "Add a 352 air device",
-        "description": "Discover devices on your local network, or enter their address manually and choose from all supported models.",
+        "title": "Add a local 352 device",
+        "description": "Discover 352 devices already connected to your network, or probe a known IP address. Legacy Air and newer Life devices are identified from their actual responses.",
         "menu_options": {
           "auto": "Discover devices automatically",
           "manual": "Manual setup (all models)"
@@ -26,10 +26,10 @@
       },
       "reconfigure": {
         "title": "Reconfigure device",
-        "description": "Update the LAN address or model and verify the device with a read-only probe. The next step can optionally clear device-local schedules. Usually leave authentication and company codes blank. If obtained from your own device, enter hex values (such as 04 03 and F1). A validated device reply is still required.",
+        "description": "Probe the new local address and verify the same device identity. Life devices continue to provide connection status only.",
         "data": {
           "host": "IP address",
-          "mac": "MAC address",
+          "mac": "MAC address (optional)",
           "model": "Model",
           "auth": "Authentication code (optional, hexadecimal)",
           "company": "Company code (optional, hexadecimal)"
@@ -37,10 +37,10 @@
       },
       "manual": {
         "title": "Add a device manually",
-        "description": "Enter the current LAN address, MAC address, and exact retail model. Identity verification is read-only; no device setting changes before the optional schedule step. Usually leave authentication and company codes blank. If obtained from your own device, enter hex values (such as 04 03 and F1). A validated device reply is still required.",
+        "description": "Enter the current IPv4 address. MAC is optional; choose Auto to identify the product from its reply. An optional MAC adds an identity check. Auth and company fields apply only to legacy Air devices and can usually be left blank. Life devices currently support local discovery and connection status only.",
         "data": {
           "host": "IP address",
-          "mac": "MAC address",
+          "mac": "MAC address (optional)",
           "model": "Model",
           "auth": "Authentication code (optional, hexadecimal)",
           "company": "Company code (optional, hexadecimal)"
@@ -56,13 +56,17 @@
       },
       "select_device": {
         "title": "Select a discovered device",
-        "description": "Choose the device to add. You will then confirm its retail model because several models can share one local protocol family.",
+        "description": "Choose a device. Legacy Air devices require model confirmation; Life devices show the available functionality before you add them.",
         "data": {
           "device": "Device"
         }
       },
       "auto": {
         "title": "Discover devices automatically"
+      },
+      "confirm_local": {
+        "title": "Add a locally discovered device",
+        "description": "A local response identified {model} at {host}.\n\nAdding it provides local connection status. Control and measurement data are not implemented for this device, so no power, fan-speed, or air-quality entities will be created. No cloud account is needed, and the existing device provisioning and binding are preserved."
       }
     },
     "error": {
@@ -74,17 +78,18 @@
       "schedule_cleanup_failed": "The schedules could not be cleared and verified; retry, or turn the option off to keep them",
       "invalid_auth": "Enter a hexadecimal authentication code from 0000 to FFFF, or leave blank",
       "invalid_company": "Enter a hexadecimal company code from 00 to FF, or leave blank",
-      "invalid_device": "Select one of the discovered devices"
+      "invalid_device": "Select one of the discovered devices",
+      "mac_required_for_header": "A MAC address is required when supplying legacy auth or company values"
     },
     "abort": {
       "already_configured": "This device is already configured",
       "cannot_connect": "No valid reply was received from the device",
       "invalid_discovery": "The discovery information is incomplete",
       "unsupported_device": "The discovered protocol family is not supported",
-      "unique_id_mismatch": "The MAC address belongs to a different configured device"
+      "unique_id_mismatch": "The responding device identity does not match this entry"
     },
     "progress": {
-      "searching": "Searching for new devices on the local network for up to {seconds} seconds. Results appear as soon as an eligible device is found; otherwise discovery probes continue periodically."
+      "searching": "Trying legacy and newer local discovery methods for up to {seconds} seconds. Eligible devices are shown as soon as they respond."
     }
   },
   "entity": {
@@ -190,6 +195,11 @@
     "switch": {
       "child_lock": {
         "name": "Child lock"
+      }
+    },
+    "binary_sensor": {
+      "local_connection": {
+        "name": "Local connection"
       }
     }
   },

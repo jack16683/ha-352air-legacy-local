@@ -4,6 +4,7 @@
   "after_dependencies": ["dhcp"],
   "codeowners": ["@jack16683"],
   "config_flow": true,
+  "dependencies": ["network"],
   "dhcp": [
     {
       "macaddress": "009569*"
