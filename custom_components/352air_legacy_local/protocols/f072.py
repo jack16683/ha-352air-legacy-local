@@ -32,6 +32,10 @@ from .base import (
 )
 
 _ROUTE = 0x01
+# A G45 contributor reported unsolicited state broadcasts on route 0x02.
+# G30 and the X50 family have not been verified for this behavior. Accept
+# both routes for F072 responses; outbound frames retain route 0x01.
+_ROUTES = frozenset({0x01, 0x02})
 _PREFIX = b"\xf0\x72"
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,9 +127,11 @@ class F072Codec(DeviceCodec):
         if peer is None or outer.identity.wire_type != self._wire_type:
             return None
         payload = outer.payload
-        if len(payload) < 14 or payload[0] != _ROUTE:
+        if len(payload) < 14 or payload[0] not in _ROUTES:
             _LOGGER.debug("Rejected F072 candidate: invalid route or payload length")
             return None
+        metadata: dict[str, int | bytes | str] = outer_metadata(outer)
+        metadata["route"] = payload[0]
         frame = payload[1:]
         # Responses have a different header from the fixed 15-byte request.
         # Android indexes the routed payload: marker 6, type 7, data 8.
@@ -144,7 +150,6 @@ class F072Codec(DeviceCodec):
 
         inner_sequence = None
         data_area = frame[7:-2]
-        metadata: dict[str, int | bytes | str] = outer_metadata(outer)
         metadata.update(
             {
                 "response_inner_length": len(frame),
