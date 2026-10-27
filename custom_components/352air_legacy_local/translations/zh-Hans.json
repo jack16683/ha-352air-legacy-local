@@ -26,7 +26,7 @@
       },
       "reconfigure": {
         "title": "重新配置设备",
-        "description": "填写新的本地地址后重新核验同一台设备。新版 Life 设备仍只提供本地连接状态。",
+        "description": "填写本地地址并核验同一台设备。X83C Plus 可在下一步配置实验性本地电源控制。",
         "data": {
           "host": "IP 地址",
           "mac": "MAC 地址（可选）",
@@ -37,7 +37,7 @@
       },
       "manual": {
         "title": "手动添加设备",
-        "description": "填写设备当前 IPv4 地址。MAC 可留空，型号可选 Auto 自动识别；填写 MAC 可进一步核对设备。鉴权码和公司码仅用于旧 Air 协议，通常留空。新版 Life 设备目前仅支持本地发现和连接状态。",
+        "description": "填写设备当前 IPv4 地址。MAC 可留空，型号可选 Auto 自动识别；填写 MAC 可进一步核对设备。鉴权码和公司码仅用于旧 Air 协议，通常留空。Life 设备可通过本地发现查看连接状态；X83C Plus 另有默认关闭的实验性电源控制。",
         "data": {
           "host": "IP 地址",
           "mac": "MAC 地址（可选）",
@@ -66,7 +66,12 @@
       },
       "confirm_local": {
         "title": "添加本地发现设备",
-        "description": "已通过局域网响应识别到 {model}，地址为 {host}。\n\n添加后可查看局域网连接状态。此设备的控制与测量数据尚未接入，不会创建开关、风速或空气质量实体。无需云账号，现有设备配网和绑定保持不变。"
+        "description": "已通过局域网响应识别到 {model}，地址为 {host}。\n\n默认仅提供本地连接状态。X83C Plus 可选启用实验性本地电源控制，需要合法取得的设备级 accessKey 和 accessToken；尚未真机验证，很可能无法使用。其他 Life 型号仍仅提供连接状态。留空凭据时保留此前已保存的凭据。",
+        "data": {
+          "experimental_life_control": "启用 X83C Plus 实验性本地电源控制",
+          "life_access_key": "设备 accessKey",
+          "life_access_token": "设备 accessToken"
+        }
       }
     },
     "error": {
@@ -79,7 +84,8 @@
       "invalid_auth": "请输入 0000 到 FFFF 之间的十六进制鉴权码，或留空",
       "invalid_company": "请输入 00 到 FF 之间的十六进制公司码，或留空",
       "invalid_device": "请选择已发现的设备",
-      "mac_required_for_header": "填写旧协议鉴权码或公司码时，需要同时填写 MAC 地址"
+      "mac_required_for_header": "填写旧协议鉴权码或公司码时，需要同时填写 MAC 地址",
+      "life_credentials_required": "启用实验控制需要有效的设备 accessKey 和 accessToken"
     },
     "abort": {
       "already_configured": "该设备已经配置",
@@ -195,6 +201,9 @@
     "switch": {
       "child_lock": {
         "name": "童锁"
+      },
+      "experimental_life_power": {
+        "name": "电源（实验性）"
       }
     },
     "binary_sensor": {

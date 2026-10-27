@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from test_discovery import coap, local
 
+importlib.import_module("cryptography.hazmat.primitives.ciphers")
 PACKAGE = "_local_runtime_tests_352"
 root = Path(__file__).resolve().parents[1] / "custom_components/352air_legacy_local"
 package = ModuleType(PACKAGE)
@@ -24,6 +25,9 @@ core.HomeAssistant = object
 core.callback = lambda fn: fn
 exceptions = ModuleType("homeassistant.exceptions")
 exceptions.ConfigEntryNotReady = type("ConfigEntryNotReady", (Exception,), {})
+exceptions.HomeAssistantError = type("HomeAssistantError", (Exception,), {})
+protocols = ModuleType(f"{PACKAGE}.protocols")
+protocols.__path__ = [str(root / "protocols")]
 registry = ModuleType("homeassistant.helpers.device_registry")
 registry.CONNECTION_NETWORK_MAC = "mac"
 registry.DeviceInfo = dict
@@ -35,6 +39,7 @@ with patch.dict(
         PACKAGE: package,
         f"{PACKAGE}.const": constants,
         f"{PACKAGE}.local_discovery": local,
+        f"{PACKAGE}.protocols": protocols,
         f"{PACKAGE}.protocols.coap_discovery": coap,
         "homeassistant.core": core,
         "homeassistant.exceptions": exceptions,
@@ -149,6 +154,60 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             probe.await_args_list[1].kwargs["required_identity"], IDENTITY.unique_id
         )
+
+    async def test_experimental_credentials_survive_identity_refresh(self):
+        hass, entry = environment()
+        entry.data.update(
+            experimental_life_control=True,
+            life_access_key="fixture-key",
+            life_access_token="fixture-token",
+        )
+        changed = coap.LocalIdentity(
+            "192.0.2.124", IDENTITY.product_key, IDENTITY.device_name, "alcs"
+        )
+        instance = runtime.LocalDiscoveryRuntime(hass, entry, IDENTITY)
+        instance.power_client = SimpleNamespace(
+            update_host=AsyncMock(), read=AsyncMock(return_value=True)
+        )
+        with patch.object(
+            runtime,
+            "async_discover_coap_devices",
+            AsyncMock(return_value=(changed,)),
+        ):
+            await instance.async_refresh()
+        self.assertTrue(instance.power_state)
+        self.assertEqual(entry.data["life_access_token"], "fixture-token")
+        instance.power_client.update_host.assert_awaited_once_with("192.0.2.124")
+        self.assertNotIn("fixture-token", str(instance.diagnostics_snapshot()))
+
+    async def test_experimental_failed_write_never_keeps_optimistic_state(self):
+        hass, entry = environment()
+        instance = runtime.LocalDiscoveryRuntime(hass, entry, IDENTITY)
+        instance.power_state = False
+        instance.power_client = SimpleNamespace(
+            set_power=AsyncMock(side_effect=runtime.AlcsError("failed"))
+        )
+        with self.assertRaises(exceptions.HomeAssistantError):
+            await instance.async_set_power(True)
+        self.assertIsNone(instance.power_state)
+
+    async def test_unload_cancels_inflight_experimental_command(self):
+        hass, entry = environment()
+        instance = runtime.LocalDiscoveryRuntime(hass, entry, IDENTITY)
+        started = asyncio.Event()
+
+        async def write(_desired):
+            started.set()
+            await asyncio.Event().wait()
+
+        instance.power_client = SimpleNamespace(set_power=AsyncMock(side_effect=write))
+        task = asyncio.create_task(instance.async_set_power(True))
+        await asyncio.wait_for(started.wait(), 1)
+        await instance.async_close()
+        self.assertTrue(task.cancelled())
+        self.assertIsNone(instance.power_state)
+        with self.assertRaises(exceptions.HomeAssistantError):
+            await instance.async_set_power(False)
 
     async def test_unreachable_scan_is_throttled_and_errors_are_fixed_labels(self):
         hass, entry = environment()

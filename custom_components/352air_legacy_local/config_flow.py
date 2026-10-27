@@ -53,6 +53,9 @@ from .schedule import (
 _LOGGER = logging.getLogger(__name__)
 _CONF_DEVICE = "device"
 _AUTO_MODEL = "AUTO"
+_EXPERIMENT = "experimental_life_control"
+_ACCESS_KEY = "life_access_key"
+_ACCESS_TOKEN = "life_access_token"
 _MANUAL_MODELS = {
     _AUTO_MODEL: "Auto",
     **MODEL_OPTIONS,
@@ -131,6 +134,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     _pending_discovery: LocalResult | None = None
     _pending_model: str | None = None
+    _pending_life_control: dict[str, Any] | None = None
     _pending_reconfigure_entry: config_entries.ConfigEntry[Any] | None = None
     _discovered_devices: dict[str, LocalResult] | None = None
     _discovery_task: asyncio.Task[tuple[LocalResult, ...]] | None = None
@@ -351,16 +355,61 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_confirm_local(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Clearly confirm discovery-only setup, without inventing control state."""
+        """Confirm local setup, with optional experimental Plus power control."""
         result = self._pending_discovery
         if not isinstance(result, LocalIdentity):
             return self.async_abort(reason="invalid_discovery")
         self._pending_model = result.model
+        errors: dict[str, str] = {}
+        is_plus = result.model == "LIFE_X83C_PLUS"
+        existing = (
+            self._pending_reconfigure_entry.data
+            if self._pending_reconfigure_entry is not None
+            else {}
+        )
         if user_input is not None:
-            return self._finish_pending_entry()
+            enabled = is_plus and user_input.get(_EXPERIMENT, False) is True
+            if enabled:
+                key = user_input.get(_ACCESS_KEY) or existing.get(_ACCESS_KEY)
+                token = user_input.get(_ACCESS_TOKEN) or existing.get(_ACCESS_TOKEN)
+                if not all(
+                    isinstance(value, str)
+                    and 0 < len(value) <= 1024
+                    and value == value.strip()
+                    for value in (key, token)
+                ):
+                    errors["base"] = "life_credentials_required"
+                else:
+                    self._pending_life_control = {
+                        _EXPERIMENT: True,
+                        _ACCESS_KEY: key,
+                        _ACCESS_TOKEN: token,
+                    }
+            else:
+                self._pending_life_control = (
+                    {_EXPERIMENT: False, _ACCESS_KEY: "", _ACCESS_TOKEN: ""}
+                    if existing.get(_EXPERIMENT)
+                    else {}
+                )
+            if not errors:
+                return self._finish_pending_entry()
+        fields: dict[Any, Any] = {}
+        if is_plus:
+            fields = {
+                vol.Required(
+                    _EXPERIMENT, default=bool(existing.get(_EXPERIMENT))
+                ): selector.BooleanSelector(),
+                vol.Optional(_ACCESS_KEY, default=""): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+                vol.Optional(_ACCESS_TOKEN, default=""): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+            }
         return self.async_show_form(
             step_id="confirm_local",
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema(fields),
+            errors=errors,
             description_placeholders={
                 "model": result.name,
                 "host": result.host,
@@ -459,6 +508,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if result is None or model is None:
             return self.async_abort(reason="invalid_discovery")
         data = self._entry_data(result, model)
+        if isinstance(result, LocalIdentity) and self._pending_life_control:
+            data.update(self._pending_life_control)
         if self._pending_reconfigure_entry is not None:
             return self.async_update_reload_and_abort(
                 self._pending_reconfigure_entry,

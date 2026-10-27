@@ -24,7 +24,7 @@ async def async_setup_entry(
     if entry.data.get("connection_type") == "local_discovery":
         local_entry = cast(LocalConfigEntry, entry)
         local_entry.runtime_data = await async_create_local_runtime(hass, local_entry)
-        platforms = (Platform.BINARY_SENSOR,)
+        platforms = (Platform.BINARY_SENSOR, Platform.SWITCH)
     else:
         legacy_entry = cast(ConfigEntry, entry)
         legacy_entry.runtime_data = await async_create_runtime(hass, legacy_entry)
@@ -42,7 +42,7 @@ async def async_unload_entry(
 ) -> bool:
     """Unload every entity first, then close the shared UDP client."""
     platforms = (
-        (Platform.BINARY_SENSOR,)
+        (Platform.BINARY_SENSOR, Platform.SWITCH)
         if entry.data.get("connection_type") == "local_discovery"
         else PLATFORMS
     )

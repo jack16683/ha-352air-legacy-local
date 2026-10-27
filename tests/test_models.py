@@ -20,6 +20,8 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+importlib.import_module("cryptography.hazmat.primitives.ciphers")
+
 
 class _Entity:
     pass
@@ -544,6 +546,51 @@ class EntityTests(unittest.IsolatedAsyncioTestCase):
         return runtime_module.RuntimeData(
             Mock(), Mock(), client, name, MAC.hex(":"), state, True, 0
         )
+
+    async def test_life_power_entity_exists_only_when_enabled_and_readable(self):
+        identity = SimpleNamespace(unique_id="life:fixture:device")
+        local_runtime = switch.LocalDiscoveryRuntime(Mock(), Mock(), identity)
+        entry = SimpleNamespace(runtime_data=local_runtime)
+        entities = []
+        await switch.async_setup_entry(None, entry, entities.extend)
+        self.assertEqual(entities, [])
+        local_runtime.power_client = Mock()
+        local_runtime.reachable = True
+        await switch.async_setup_entry(None, entry, entities.extend)
+        self.assertEqual(len(entities), 1)
+        self.assertFalse(entities[0].available)
+        local_runtime.power_state = False
+        self.assertTrue(entities[0].available)
+        self.assertFalse(entities[0].is_on)
+
+    async def test_life_credentials_are_redacted_from_diagnostics(self):
+        def redact(data, keys):
+            if isinstance(data, dict):
+                return {
+                    key: "**REDACTED**" if key in keys else redact(value, keys)
+                    for key, value in data.items()
+                }
+            return data
+
+        diagnostics_stub = _module(
+            "homeassistant.components.diagnostics", async_redact_data=redact
+        )
+        package.LocalConfigEntry = object
+        with patch.dict(
+            sys.modules,
+            {**stubs, "homeassistant.components.diagnostics": diagnostics_stub},
+        ):
+            diagnostic = importlib.import_module(f"{PACKAGE}.diagnostics")
+        entry = SimpleNamespace(
+            data={
+                "life_access_key": "fixture-key",
+                "life_access_token": "fixture-token",
+            },
+            runtime_data=SimpleNamespace(diagnostics_snapshot=dict),
+        )
+        result = await diagnostic.async_get_config_entry_diagnostics(None, entry)
+        self.assertEqual(result["entry"]["life_access_key"], "**REDACTED**")
+        self.assertEqual(result["entry"]["life_access_token"], "**REDACTED**")
 
     async def test_entity_scopes_for_all_ten_models(self):
         for name, wire in WIRE_TYPES.items():

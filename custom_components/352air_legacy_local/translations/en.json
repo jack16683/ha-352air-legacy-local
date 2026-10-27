@@ -26,7 +26,7 @@
       },
       "reconfigure": {
         "title": "Reconfigure device",
-        "description": "Probe the new local address and verify the same device identity. Life devices continue to provide connection status only.",
+        "description": "Probe the address and verify the same device. X83C Plus experimental local power can be configured in the next step.",
         "data": {
           "host": "IP address",
           "mac": "MAC address (optional)",
@@ -37,7 +37,7 @@
       },
       "manual": {
         "title": "Add a device manually",
-        "description": "Enter the current IPv4 address. MAC is optional; choose Auto to identify the product from its reply. An optional MAC adds an identity check. Auth and company fields apply only to legacy Air devices and can usually be left blank. Life devices currently support local discovery and connection status only.",
+        "description": "Enter the current IPv4 address. MAC is optional; choose Auto to identify the product from its reply. An optional MAC adds an identity check. Auth and company fields apply only to legacy Air devices and can usually be left blank. Life devices support local discovery and connection status; X83C Plus has optional experimental power control.",
         "data": {
           "host": "IP address",
           "mac": "MAC address (optional)",
@@ -66,7 +66,12 @@
       },
       "confirm_local": {
         "title": "Add a locally discovered device",
-        "description": "A local response identified {model} at {host}.\n\nAdding it provides local connection status. Control and measurement data are not implemented for this device, so no power, fan-speed, or air-quality entities will be created. No cloud account is needed, and the existing device provisioning and binding are preserved."
+        "description": "A local response identified {model} at {host}.\n\nLocal connection status is enabled by default. X83C Plus can optionally enable experimental local power control with legitimately obtained device accessKey and accessToken. It has not been hardware-tested and is likely not to work. Other Life models provide connection status only. Leave credentials blank to retain saved credentials.",
+        "data": {
+          "experimental_life_control": "Enable experimental X83C Plus local power control",
+          "life_access_key": "Device accessKey",
+          "life_access_token": "Device accessToken"
+        }
       }
     },
     "error": {
@@ -79,7 +84,8 @@
       "invalid_auth": "Enter a hexadecimal authentication code from 0000 to FFFF, or leave blank",
       "invalid_company": "Enter a hexadecimal company code from 00 to FF, or leave blank",
       "invalid_device": "Select one of the discovered devices",
-      "mac_required_for_header": "A MAC address is required when supplying legacy auth or company values"
+      "mac_required_for_header": "A MAC address is required when supplying legacy auth or company values",
+      "life_credentials_required": "Device accessKey and accessToken are required for experimental control"
     },
     "abort": {
       "already_configured": "This device is already configured",
@@ -195,6 +201,9 @@
     "switch": {
       "child_lock": {
         "name": "Child lock"
+      },
+      "experimental_life_power": {
+        "name": "Power (experimental)"
       }
     },
     "binary_sensor": {

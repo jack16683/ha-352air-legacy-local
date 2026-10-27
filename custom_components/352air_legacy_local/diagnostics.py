@@ -29,6 +29,8 @@ _TO_REDACT = {
     "accessToken",
     "access_key",
     "access_token",
+    "life_access_key",
+    "life_access_token",
     "token",
     "random",
     "source",

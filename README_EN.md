@@ -67,9 +67,25 @@ retain combined model labels.
 
 **Catalog recognition is not hardware or control verification.** A valid
 local response is required. Life setup explains the limited functionality
-before creating only a diagnostic **Local connection** entity. It does not
-create power, fan-speed, humidity, or air-quality entities. Read-only
-reachability probes do not establish control authorization.
+before creating a diagnostic **Local connection** entity. Optional experimental
+X83C Plus power control is described below; other Life models do not get power,
+fan-speed, humidity, or air-quality entities. Read-only reachability probes do
+not establish control authorization.
+
+### Experimental X83C Plus local power control
+
+**This feature has not been tested on Life hardware and is likely not to work.**
+It is off by default and only available for X83C Plus. It requires legitimately
+obtained device-specific `accessKey` and `accessToken`; this integration does not
+retrieve them, and discovery tokens are not substitutes. Home Assistant stores
+the credentials, and diagnostics redact them.
+
+When enabled, the integration attempts an ALCS secure session and a power read.
+The experimental power switch is unavailable unless a real read succeeds. A
+write performs a fresh pre-read, sends once, and reads back to confirm. If the
+write times out or confirmation fails, its outcome is unknown; check the device.
+Fan speed, modes, and control of other Life models are not implemented. Firmware
+and authorization requirements may prevent this experiment from working.
 
 This scope includes no cloud login, device binding, Bluetooth provisioning,
 SoftAP network switching, firmware updates, or cloud interception. Devices
@@ -112,7 +128,7 @@ command values 4 and 5, so this project does not expose an unverified
    **352 Air Legacy Local**.
 
 Discovery lists devices with valid replies. Legacy Air devices require model
-confirmation; Life devices require confirmation of discovery-only setup.
+confirmation; Life devices require confirmation of their experimental scope.
 Manual setup needs the current IP address; MAC is optional and Auto can
 identify the product. Supplying legacy auth/company values still requires a
 MAC. Discovery never provisions Wi-Fi or locks a device.

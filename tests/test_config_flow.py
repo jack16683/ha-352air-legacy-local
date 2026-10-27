@@ -401,6 +401,52 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("wire_type", result["data"])
         schedule.async_clear_local_schedules.assert_not_awaited()
 
+    async def test_life_experimental_control_requires_opt_in_and_credentials(self):
+        config = flow.ConfigFlow()
+        config._pending_discovery = LIFE_RESULT
+        form = await config.async_step_confirm_local()
+        self.assertFalse(form["data_schema"]({})["experimental_life_control"])
+        rejected = await config.async_step_confirm_local(
+            {"experimental_life_control": True}
+        )
+        self.assertEqual(rejected["errors"]["base"], "life_credentials_required")
+        accepted = await config.async_step_confirm_local(
+            {
+                "experimental_life_control": True,
+                "life_access_key": "fixture-key",
+                "life_access_token": "fixture-token",
+            }
+        )
+        self.assertTrue(accepted["data"]["experimental_life_control"])
+        self.assertEqual(accepted["data"]["life_access_token"], "fixture-token")
+
+    async def test_life_experimental_reconfigure_can_disable_and_clear_credentials(
+        self,
+    ):
+        config = flow.ConfigFlow()
+        config._pending_discovery = LIFE_RESULT
+        config._pending_reconfigure_entry = SimpleNamespace(
+            data={
+                **LIFE_RESULT.as_entry_data(),
+                "experimental_life_control": True,
+                "life_access_key": "fixture-key",
+                "life_access_token": "fixture-token",
+            }
+        )
+        result = await config.async_step_confirm_local(
+            {"experimental_life_control": False}
+        )
+        self.assertFalse(result["data_updates"]["experimental_life_control"])
+        self.assertEqual(result["data_updates"]["life_access_token"], "")
+
+    async def test_other_life_models_have_no_experimental_control_form(self):
+        config = flow.ConfigFlow()
+        config._pending_discovery = flow.LocalIdentity(
+            INPUT["host"], "a1VJw1Oud8X", "fixture", "device_info"
+        )
+        form = await config.async_step_confirm_local()
+        self.assertEqual(form["data_schema"]({}), {})
+
     async def test_life_automatic_selection_and_configured_identity_filter(self):
         config = flow.ConfigFlow()
         with patch.object(

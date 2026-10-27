@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Local connection visibility for discovery-only 352Life entries."""
+"""Local connection visibility for 352Life entries."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ async def async_setup_entry(
     entry: LocalConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """No control entities are created for unauthenticated discovery identities."""
+    """Expose discovery reachability separately from experimental controls."""
     async_add_entities([LocalConnectionSensor(entry.runtime_data)])
 
 
