@@ -14,6 +14,7 @@ htmlcov/
 !/tests/test_discovery.py
 !/tests/test_config_flow.py
 !/tests/test_models.py
+!/tests/test_f072_broadcast_route.py
 /private_validation/
 
 # Never publish reverse-engineering inputs or private network material.
