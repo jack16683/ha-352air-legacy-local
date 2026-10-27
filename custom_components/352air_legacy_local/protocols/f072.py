@@ -32,10 +32,9 @@ from .base import (
 )
 
 _ROUTE = 0x01
-# Devices answer requests with route 0x01, but they also emit unsolicited
-# state broadcasts on route 0x02 (observed on G30/G45 hardware).  Both carry
-# the same inner response framing, so both are accepted for decode; outbound
-# frames keep the documented request route.
+# A G45 contributor reported unsolicited state broadcasts on route 0x02.
+# G30 and the X50 family have not been verified for this behavior. Accept
+# both routes for F072 responses; outbound frames retain route 0x01.
 _ROUTES = frozenset({0x01, 0x02})
 _PREFIX = b"\xf0\x72"
 _LOGGER = logging.getLogger(__name__)

@@ -36,13 +36,13 @@ with patch.dict(
     models = importlib.import_module(f"{PACKAGE}.models")
     f072 = importlib.import_module(f"{PACKAGE}.protocols.f072")
 
-MAC = bytes.fromhex("f0fe6ba57967")
-AUTH = 0x860C
+MAC = bytes.fromhex("123456789abc")
+AUTH = 0x1234
 PEER = ("192.0.2.50", 11530)
 
 
 def g30_broadcast_frame(route: int) -> bytes:
-    """A G30/G45 unsolicited state frame as captured on real hardware.
+    """Build a synthetic G30/G45 state frame matching the reported layout.
 
     The codec's ``data_area`` is ``inner[7:-2]``; per the captured device
     frames that area starts with the two-byte inner sequence, so the state
