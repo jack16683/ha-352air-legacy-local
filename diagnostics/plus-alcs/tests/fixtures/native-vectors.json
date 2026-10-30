@@ -1,0 +1,35 @@
+{
+  "native_auth_request": {
+    "version": "1.0",
+    "method": "core/service/auth",
+    "id": 1,
+    "params": {
+      "prodKey": "synthetic-product",
+      "deviceName": "synthetic-device",
+      "encrypt": "payload",
+      "randomKey": "4oMBQ6w4T5COIis",
+      "sign": "mOj+JVsFwJCyzi55WACdM9x2q3w=",
+      "accessKey": "synthetic-access",
+      "opt": 7
+    }
+  },
+  "synthetic_session_key_hex": "6735d50062bd2b854c9d64f1c4f854bfa4b4b90f",
+  "native_read_request": {
+    "ciphertext_hex": "61d70712f3dd674e6e99030f129c4195cdb45b6d233245efe1f55d7ba214eaecb5a3b24bd222d1c76608deb0d0a21084f989a794c3245e34753c06b43270bad2bd7237483599a0091e425c6502c92797f7579aaf65d79f506c7b65b7e88bd373",
+    "options": [
+      [
+        12,
+        "2a"
+      ],
+      [
+        71,
+        "12345678cdb2e31f"
+      ],
+      [
+        72,
+        "00000011c0a53a58"
+      ]
+    ]
+  },
+  "native_library_sha256": "12b3dba10555b48107e92bd2695924be3f2f193f89cd47e655766c004def0a64"
+}

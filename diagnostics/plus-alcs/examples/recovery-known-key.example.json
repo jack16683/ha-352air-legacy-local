@@ -1,0 +1,5 @@
+{
+  "kind": "known_local_key",
+  "prefix": "REPLACE8",
+  "secret": "REPLACE_WITH_OLD_LOCAL_SECRET"
+}
